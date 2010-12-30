@@ -164,9 +164,9 @@
 	      and fd in *envdev-key-fds*
 	      if (sb-unix:fd-isset fd fd-set)
 		do (sb-unix:unix-read fd event (cffi:foreign-type-size 'input_event))
-		   (print-event event)
 		   (cffi:with-foreign-slots ((type) event input_event)
 		     (cond ((= type EV_KEY)
+			    (print-event event)
 			    (return-from receive-keyboard-event t))
 			   ((or (= type EV_SYN)	; 無視
 				(= type EV_MSC)))
@@ -200,9 +200,70 @@
 
 (defun print-event (event)
   (cffi:with-foreign-slots ((type code value) event input_event)
-    (format t "~&type: ~a, code: ~d, value: ~d~%"
+    (format t "~&        type: ~a, code: ~d, value: ~d~%"
 	    (event-type-to-symbol type)
 	    code value)))
+
+
+(defparameter *key-array*
+  (let ((array (make-array KEY_CNT :element-type 'fixnum)))
+    (loop for i from 0 below KEY_CNT
+	  do (setf (aref array i) i))
+    array))
+
+(defparameter *one-shot* nil)
+(defvar *one-shot-status* nil)
+
+(defun one-shot (code value)
+  (let ((mod (cdr (assoc code *one-shot*))))
+    (if mod
+	(cond ((and (not *one-shot-status*) (= value +press+))
+	       (setf *one-shot-status* :only)
+	       `((,mod ,+press+)))
+	      ((and (eq *one-shot-status* :only) (= value +release+)) ; 他に何も押さなかった場合
+	       (setf *one-shot-status* nil)
+	       `((,mod ,+release+)
+		 (,code ,+press+)
+		 (,code ,+release+)))
+	      ((= value +release+)
+	       (setf *one-shot-status* nil)
+	       `((,mod ,+release+)))
+	      (t (list ())))
+	(progn
+	  (when (eq *one-shot-status* :only)
+	    (setf *one-shot-status* :other))
+	  nil))))
+
+
+(defun translate-key (code value)
+  (let ((code (aref *key-array* code)))
+    (or (one-shot code value)
+	(list (list code value)))))
+  
+(defun proc-key (code value)
+  (if (= code KEY_F12)
+      nil
+      (progn
+	(loop for (code value) in (translate-key code value)
+	      if code
+		do (send-keyboard-event code value))
+	t)))
+
+(defun main-loop ()
+  (open-keyboard-device)
+  (unwind-protect
+       (progn
+	 (sleep 1)
+	 (keyboard-grab-onoff t)
+	 (cffi:with-foreign-object (event 'input_event)
+	   (loop
+	     (receive-keyboard-event event)
+	     (cffi:with-foreign-slots ((type code value) event input_event)
+	       (unless (proc-key code value)
+		 (return))))))
+    (close-keyboard-device)))
+;; (main-loop)
+  
 #|
 (progn
   (sleep 0.5)

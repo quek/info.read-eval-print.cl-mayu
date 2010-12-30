@@ -5,6 +5,7 @@
   :components ((:file "package")
 	       (:file "key")
 	       (:file "ffi")
-               (:file "mayu"))
+               (:file "mayu")
+	       (:file "config"))
   :depends-on (:cffi))
 

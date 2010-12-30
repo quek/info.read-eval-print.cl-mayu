@@ -1,5 +1,9 @@
 (in-package :mayu)
 
+(defconstant +press+ 1)
+(defconstant +release+ 0)
+(defconstant +repeat+ 2)
+
 (cl:defconstant KEY_RESERVED 0)
 (cl:defconstant KEY_ESC 1)
 (cl:defconstant KEY_1 2)
