@@ -1,6 +1,6 @@
-;;;; mayu.asd
+;;;; -*- lisp -*-
 
-(asdf:defsystem #:mayu
+(asdf:defsystem #:info.read-eval-print.cl-mayu
   :serial t
   :components ((:file "package")
 	       (:file "key")
@@ -8,4 +8,3 @@
                (:file "mayu")
 	       (:file "config"))
   :depends-on (:cffi))
-

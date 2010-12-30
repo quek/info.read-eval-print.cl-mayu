@@ -1,5 +1,6 @@
 ;;;; package.lisp
 
-(defpackage #:mayu
-  (:use #:cl))
+(defpackage #:info.read-eval-print.cl-mayu
+  (:use #:cl)
+  (:nicknames :mayu))
 
