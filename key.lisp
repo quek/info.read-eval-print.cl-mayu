@@ -1,14 +1,28 @@
 (in-package :mayu)
 
+;; key action (value)
 (defconstant +press+ 1)
 (defconstant +release+ 0)
 (defconstant +repeat+ 2)
 
-(defconstant +alt+   '+alt+)
-(defconstant +ctrl+  '+ctrl+)
-(defconstant +meta+  '+meta+)
-(defconstant +shift+ '+shift+)
+;; modifier
+(defconstant +any+      '+any+)
+(defconstant +alt+      '+alt+)
+(defconstant +ctrl+     '+ctrl+)
+(defconstant +meta+     '+meta+)
+(defconstant +shift+    '+shift+)
+(defconstant +no-alt+   '+no-alt+)
+(defconstant +no-ctrl+  '+no-ctrl+)
+(defconstant +no-meta+  '+no-meta+)
+(defconstant +no-shift+ '+no-shift+)
 
+(defvar *modifiers*
+  (list (list +alt+ +no-alt+)
+        (list +ctrl+ +no-ctrl+)
+        (list +meta+ +no-meta+)
+        (list +shift+ +no-shift+)))
+
+;; key
 (cl:defconstant KEY_RESERVED 0)
 (cl:defconstant KEY_ESC 1)
 (cl:defconstant KEY_1 2)

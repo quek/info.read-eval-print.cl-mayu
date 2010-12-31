@@ -145,22 +145,31 @@
 	    (when (/= event-size write-size)
 	      (p "send-input-event failed ~d" (sb-alien:get-errno)))))))))
 
-(defgeneric send-keyboard-event (code value))
+(defun mod-sym-to-key (mod-sym)
+  (case mod-sym
+    (+alt+ KEY_LEFTALT)
+    (+ctrl+ KEY_LEFTCTRL)
+    (+meta+ KEY_LEFTMETA)
+    (+shift+ KEY_LEFTSHIFT)))
 
-(defmethod send-keyboard-event (code value)
+(defgeneric send-keyboard-event (code action))
+
+(defmethod send-keyboard-event (code action)
   (when *uinput-fd*
-    (send-input-event EV_KEY code value) ; TODO error
+    (send-input-event EV_KEY code action) ; TODO error
     (send-input-event EV_SYN SYN_REPORT 0)
-    (p "send-keyboard-event ~a ~a" code value)
+    (p "send-keyboard-event ~a ~a" code action)
     t))
 
+(defmethod send-keyboard-event ((code symbol) action)
+  (send-keyboard-event (mod-sym-to-key code) action))
 
 (macrolet ((m (key ver)
              `(progn
                 (defvar ,ver nil)
-                (defmethod send-keyboard-event :after ((code (eql ,key)) (value (eql +press+)))
+                (defmethod send-keyboard-event :after ((code (eql ,key)) (action (eql +press+)))
                   (setf ,ver t))
-                (defmethod send-keyboard-event :after ((code (eql ,key)) (value (eql +release+)))
+                (defmethod send-keyboard-event :after ((code (eql ,key)) (action (eql +release+)))
                   (setf ,ver nil)))))
   (m KEY_LEFTSHIFT      *left-shift*)
   (m KEY_RIGHTSHIFT     *right-shift*)
@@ -247,18 +256,18 @@
 (defvar *one-shot* nil)
 (defvar *one-shot-status* nil)
 
-(defun proc-one-shot (code value)
+(defun proc-one-shot (code action)
   (let ((mod (cdr (assoc code *one-shot*))))
     (if mod
-	(cond ((and (not *one-shot-status*) (= value +press+))
+	(cond ((and (not *one-shot-status*) (= action +press+))
 	       (setf *one-shot-status* :only)
 	       `((,mod ,+press+)))
-	      ((and (eq *one-shot-status* :only) (= value +release+)) ; 他に何も押さなかった場合
+	      ((and (eq *one-shot-status* :only) (= action +release+)) ; 他に何も押さなかった場合
 	       (setf *one-shot-status* nil)
 	       `((,mod ,+release+)
 		 (,code ,+press+)
 		 (,code ,+release+)))
-	      ((= value +release+)
+	      ((= action +release+)
 	       (setf *one-shot-status* nil)
 	       `((,mod ,+release+)))
 	      (t (list ())))
@@ -270,9 +279,6 @@
 (defvar *sequence-table* nil)
 (defvar *sequence-temp-mod* nil)
 
-(defun sequence-match-p (a b)
-  (and (null (set-difference a b))
-       (null (set-difference b a))))
 
 (defun current-mod ()
   (let ((mod `(,@(if (alt-press-p)     '(+alt+))
@@ -285,79 +291,114 @@
                  (pushnew c mod)))
     mod))
 
-(defun mod-sym-to-key (mod-sym)
-  (case mod-sym
-    (+alt+ KEY_LEFTALT)
-    (+ctrl+ KEY_LEFTCTRL)
-    (+meta+ KEY_LEFTMETA)
-    (+shift+ KEY_LEFTSHIFT)))
+(defun find-no-mod (x)
+  (find x *modifiers* :key #'cadr))
 
-(defun compute-sequence-temp-mod (sequence current-mod)
-  (append
-   (loop for i in sequence
-         if (and (symbolp i) (not (member i current-mod)))
-           collect (list i +press+))
-   (loop for i in current-mod
-         unless (member i sequence)
-           collect (list i +release+))))
+(defun compute-sequence-temp-mod (sequence-key sequence-value current-mod)
+  (let (any)
+    (append
+     (loop for i in sequence-value
+           if (eq i +any+)
+             do (setf any t)
+           else if (and (symbolp i)
+                        (not (eq i +any+))
+                        (not (member i current-mod)))
+                  collect (list i +press+))
+     (if any
+         (loop for i in sequence-key
+               if (and (symbolp i)
+                       (not (eq i +any+))
+                       (not (find-no-mod i))
+                       (not (member i sequence-value)))
+                 collect (list i +release+))
+         (loop for i in current-mod
+               unless (member i sequence-value)
+                 collect (list i +release+))))))
 
-(defgeneric compute-send-sequence (sequence current-mod code value)
-  (:method (sequence current-mod code (value (eql +repeat+)))
-    (loop for i in sequence
+(defgeneric compute-send-sequence (sequence-key sequence-value current-mod code action)
+  (:method (sequence-key sequence-value current-mod code (action (eql +repeat+)))
+    (loop for i in sequence-value
           if (numberp i)
             do (list (list i +repeat+))))
-  (:method (sequence current-mod code (value (eql +press+)))
-    (setf *sequence-temp-mod* (compute-sequence-temp-mod sequence current-mod))
-    (print *sequence-temp-mod*)
-    (let ((key (find-if #'numberp sequence)))
+  (:method (sequence-key sequence-value current-mod code (action (eql +press+)))
+    (setf *sequence-temp-mod* (compute-sequence-temp-mod sequence-key sequence-value current-mod))
+    (let ((key (find-if #'numberp sequence-value)))
       (if key
-          (append (loop for (c v) in *sequence-temp-mod*
-                        collect (list (mod-sym-to-key c) v))
+          (append *sequence-temp-mod*
                   (list (list key +press+)))
           (list ()))))
-  (:method (sequence current-mod code (value (eql +release+)))
+  (:method (sequence-key sequence-value current-mod code (action (eql +release+)))
     (let ((mod (loop for (c v) in *sequence-temp-mod*
-                     collect (list (mod-sym-to-key c) (if (= v +press+) +release+ +press+))))
-          (key (find-if #'numberp sequence)))
-      (print mod)
+                     collect (list  c (if (= v +press+) +release+ +press+))))
+          (key (find-if #'numberp sequence-value)))
       (setf *sequence-temp-mod* nil)
       (if key
           (append (list (list key +release+)) mod)
           (list ())))))
 
-(defun proc-sequence (code value)
+(defun sequence-match-p (a b)
+  "a is input. b is key in *sequence-table*."
+  (let (any)
+    (loop for i in b
+          for no-mod = (find-no-mod i)
+          do (cond (no-mod
+                    (when (member (car no-mod) a)
+                      (return-from sequence-match-p nil)))
+                   ((eq i +any+)
+                    (setf any t))
+                   ((not (member i a))
+                    (return-from sequence-match-p nil))))
+    (when (not any)
+      (loop for i in a
+            unless (member i b)
+              do (return-from sequence-match-p nil))))
+  t)
+;; (sequence-match-p (list KEY_COMMA) (list +any+ +no-shift+ KEY_COMMA))
+;; (sequence-match-p (list +shift+ KEY_0) (list +any+ +shift+ KEY_0))
+;; (sequence-match-p (list +shift+ KEY_DOT) (list +any+ +no-shift+ KEY_DOT))
+
+
+(defun proc-sequence (code action)
   (let* ((current-mod (current-mod))
          (current-sequence (append current-mod (list code))))
     (loop for (key . val) in *sequence-table*
-          if (sequence-match-p key current-sequence)
+          if (sequence-match-p current-sequence key)
             do (return-from proc-sequence
-                 (compute-send-sequence val current-mod code value)))
+                 (compute-send-sequence key val current-mod code action)))
     nil))
+#|
+(let ((*sequence-temp-mod* nil))
+  (compute-send-sequence (list +any+ +shift+ KEY_DOT) (list +any+ KEY_DOT) (list +shift+) KEY_DOT +press+))
+(let ((*sequence-temp-mod* nil))
+  (compute-send-sequence (list +any+ +shift+ KEY_DOT) (list +any+ KEY_DOT) (list +shift+ +alt+) KEY_DOT +press+))
+(let ((*sequence-temp-mod* nil))
+  (compute-send-sequence (list +any+ +shift+ KEY_0) (list +any+ +shift+ KEY_DOT) (list +shift+) KEY_0 +press+))
+|#
 
 
-(defun equal-unorder (a b)
-  (equal (sort a #'< :key #'car)
-         (sort b #'< :key #'car)))
-(assert (equal-unorder `((,KEY_LEFTSHIFT 1) (,KEY_LEFTALT 1) (,KEY_LEFTCTRL 0) (,KEY_B 1))
-                       (let ((*sequence-temp-mod* nil)
-                             (*left-ctrl* t)
-                             (*sequence-table* `(((+ctrl+ ,KEY_A) . (+shift+ +alt+ ,KEY_B)))))
-                         (proc-sequence KEY_A +press+))))
+;;(defun equal-unorder (a b)
+;;  (equal (sort a #'< :key #'car)
+;;         (sort b #'< :key #'car)))
+;;(assert (equal-unorder `((,KEY_LEFTSHIFT 1) (,KEY_LEFTALT 1) (,KEY_LEFTCTRL 0) (,KEY_B 1))
+;;                       (let ((*sequence-temp-mod* nil)
+;;                             (*left-ctrl* t)
+;;                             (*sequence-table* `(((+ctrl+ ,KEY_A) . (+shift+ +alt+ ,KEY_B)))))
+;;                         (proc-sequence KEY_A +press+))))
 
 
-(defun translate-key (code value)
+(defun translate-key (code action)
   (let ((code (aref *key-array* code)))
-    (or (proc-one-shot code value)
-        (proc-sequence code value)
-	(list (list code value)))))
+    (or (proc-one-shot code action)
+        (proc-sequence code action)
+	(list (list code action)))))
 
-(defun proc-key (code value)
+(defun proc-key (code action)
   (if (= code KEY_F12)
       nil
       (progn
-	(loop for (code value) in (translate-key code value)
+	(loop for (code action) in (translate-key code action)
 	      if code
-		do (send-keyboard-event code value))
+		do (send-keyboard-event code action))
 	t)))
 
 (defun main-loop ()
@@ -401,8 +442,8 @@
 	 (cffi:with-foreign-object (event 'input_event)
 	   (loop repeat 50 do
 	     (receive-keyboard-event event)
-	     (cffi:with-foreign-slots ((type code value) event input_event)
-	       (send-keyboard-event (1+ code) value)))))
+	     (cffi:with-foreign-slots ((type code action) event input_event)
+	       (send-keyboard-event (1+ code) action)))))
     (close-keyboard-device)))
 
 (unwind-protect
