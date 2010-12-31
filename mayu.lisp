@@ -3,7 +3,8 @@
 (defmacro p (format &rest args)
   `(progn
      (format *error-output* "~&")
-     (format *error-output* ,format ,@args)))
+     (format *error-output* ,format ,@args)
+     (force-output *error-output*)))
 
 
 (defconstant +evdev-minors+ 32)
@@ -148,9 +149,9 @@
 
 (defmethod send-keyboard-event (code value)
   (when *uinput-fd*
-    (p "send-keyboard-event ~a ~a" code value)
     (send-input-event EV_KEY code value) ; TODO error
     (send-input-event EV_SYN SYN_REPORT 0)
+    (p "send-keyboard-event ~a ~a" code value)
     t))
 
 
@@ -237,13 +238,13 @@
 	    code value)))
 
 
-(defparameter *key-array*
+(defvar *key-array*
   (let ((array (make-array KEY_CNT :element-type 'fixnum)))
     (loop for i from 0 below KEY_CNT
 	  do (setf (aref array i) i))
     array))
 
-(defparameter *one-shot* nil)
+(defvar *one-shot* nil)
 (defvar *one-shot-status* nil)
 
 (defun proc-one-shot (code value)
@@ -274,26 +275,31 @@
        (null (set-difference b a))))
 
 (defun current-mod ()
-  `(,@(if (alt-press-p)     '(:alt))
-      ,@(if (ctrl-press-p)  '(:ctrl))
-      ,@(if (meta-press-p)  '(:meta))
-      ,@(if (shift-press-p) '(:shift))))
+  (let ((mod `(,@(if (alt-press-p)     '(+alt+))
+                 ,@(if (ctrl-press-p)  '(+ctrl+))
+                 ,@(if (meta-press-p)  '(+meta+))
+                 ,@(if (shift-press-p) '(+shift+)))))
+    (loop for (c v) in *sequence-temp-mod*
+          do (if (= v +press+)
+                 (setf mod (delete c mod))
+                 (pushnew c mod)))
+    mod))
 
 (defun mod-sym-to-key (mod-sym)
   (case mod-sym
-    (:alt KEY_LEFTALT)
-    (:ctrl KEY_LEFTCTRL)
-    (:meta KEY_LEFTMETA)
-    (:shift KEY_LEFTSHIFT)))
+    (+alt+ KEY_LEFTALT)
+    (+ctrl+ KEY_LEFTCTRL)
+    (+meta+ KEY_LEFTMETA)
+    (+shift+ KEY_LEFTSHIFT)))
 
 (defun compute-sequence-temp-mod (sequence current-mod)
   (append
    (loop for i in sequence
          if (and (symbolp i) (not (member i current-mod)))
-           collect (list (mod-sym-to-key i) +press+))
+           collect (list i +press+))
    (loop for i in current-mod
          unless (member i sequence)
-           collect (list (mod-sym-to-key i) +release+))))
+           collect (list i +release+))))
 
 (defgeneric compute-send-sequence (sequence current-mod code value)
   (:method (sequence current-mod code (value (eql +repeat+)))
@@ -305,16 +311,18 @@
     (print *sequence-temp-mod*)
     (let ((key (find-if #'numberp sequence)))
       (if key
-          (append *sequence-temp-mod* (list (list key +press+)))
+          (append (loop for (c v) in *sequence-temp-mod*
+                        collect (list (mod-sym-to-key c) v))
+                  (list (list key +press+)))
           (list ()))))
   (:method (sequence current-mod code (value (eql +release+)))
     (let ((mod (loop for (c v) in *sequence-temp-mod*
-                     collect (list c (if (= v +press+) +release+ +press+))))
+                     collect (list (mod-sym-to-key c) (if (= v +press+) +release+ +press+))))
           (key (find-if #'numberp sequence)))
       (print mod)
       (setf *sequence-temp-mod* nil)
       (if key
-          (append mod (list (list key +release+)))
+          (append (list (list key +release+)) mod)
           (list ())))))
 
 (defun proc-sequence (code value)
@@ -326,10 +334,15 @@
                  (compute-send-sequence val current-mod code value)))
     nil))
 
-(assert (equal `((,KEY_LEFTSHIFT 1) (,KEY_LEFTALT 1) (,KEY_LEFTCTRL 0) (,KEY_B 1))
-               (let ((*left-ctrl* t)
-                     (*sequence-table* `(((:ctrl ,KEY_A) . (:shift :alt ,KEY_B)))))
-                 (proc-sequence KEY_A +press+))))
+
+(defun equal-unorder (a b)
+  (equal (sort a #'< :key #'car)
+         (sort b #'< :key #'car)))
+(assert (equal-unorder `((,KEY_LEFTSHIFT 1) (,KEY_LEFTALT 1) (,KEY_LEFTCTRL 0) (,KEY_B 1))
+                       (let ((*sequence-temp-mod* nil)
+                             (*left-ctrl* t)
+                             (*sequence-table* `(((+ctrl+ ,KEY_A) . (+shift+ +alt+ ,KEY_B)))))
+                         (proc-sequence KEY_A +press+))))
 
 
 (defun translate-key (code value)

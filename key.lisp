@@ -4,6 +4,11 @@
 (defconstant +release+ 0)
 (defconstant +repeat+ 2)
 
+(defconstant +alt+   '+alt+)
+(defconstant +ctrl+  '+ctrl+)
+(defconstant +meta+  '+meta+)
+(defconstant +shift+ '+shift+)
+
 (cl:defconstant KEY_RESERVED 0)
 (cl:defconstant KEY_ESC 1)
 (cl:defconstant KEY_1 2)
