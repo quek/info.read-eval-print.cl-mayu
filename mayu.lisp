@@ -1,10 +1,47 @@
 (in-package :mayu)
 
-(defmacro p (format &rest args)
-  `(progn
-     (format *error-output* "~&")
-     (format *error-output* ,format ,@args)
-     (force-output *error-output*)))
+(defconstant +posix-epoch+ (encode-universal-time 0 0 0 1 1 1970 0))
+
+(defun input-event-to-string (event)
+  (cffi:with-foreign-slots ((time type code value) event input_event)
+    (cffi:with-foreign-slots ((tv_sec tv_usec) time timeval)
+      (multiple-value-bind (sec min hour day month year)
+          (decode-universal-time (+ tv_sec +posix-epoch+))
+        (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~[release~;press~;repeat~]"
+                year month day hour min sec tv_usec
+                (key-code-to-symbol code)
+                value)))))
+
+(defvar *log-pathname* #p"/tmp/cl-mayu.log")
+
+(defvar *log-stream* nil)
+
+(defgeneric write-log (format &rest args))
+
+(defmethod write-log :before (format &rest args)
+  (declare (ignore args))
+  (unless *log-stream*
+    (setf *log-stream* (open *log-pathname*
+                       :direction :output
+                       :external-format :utf-8
+                       :if-does-not-exist :create
+                       :if-exists :append))))
+
+(defmethod write-log :after (format &rest args)
+  (declare (ignore format args))
+  (terpri *log-stream*)
+  (force-output *log-stream*))
+
+(defmethod write-log ((format string) &rest args)
+  (apply #'format *log-stream* format args))
+
+(defmethod write-log (format &rest args)
+  (apply #'write-log (princ-to-string format) args))
+
+(defun close-log-stream ()
+  (close *log-stream*)
+  (setf *log-stream* nil))
+
 
 
 (defconstant +evdev-minors+ 32)
@@ -25,7 +62,7 @@
   (let ((size (1+ (truncate (/ EV_MAX 8)))))
     (cffi:with-foreign-objects ((evtype-bitmask :uint8 size))
       (sb-posix:ioctl fd
-		      (EVIOCGBIT 0 (* 8 size)) 
+		      (EVIOCGBIT 0 (* 8 size))
 		      (sb-alien:sap-alien evtype-bitmask (* t)))
       ;; EV_SYN, EV_KEY, EV_REP ならおｋ
       (let ((value (cffi:mem-ref evtype-bitmask :uint32)))
@@ -39,7 +76,6 @@
       (let* ((dev-path (format nil "/dev/input/event~d" dev-number))
 	     (fd (sb-posix:open dev-path
 				(logior sb-posix:o-rdonly sb-posix:o-ndelay))))
-	(p "open ~a~%" dev-path)
 	(cffi:with-foreign-objects ((version :int))
 	  (sb-posix:ioctl fd
 			  EVIOCGVERSION
@@ -49,7 +85,7 @@
 	      (progn
 		(sb-posix:close fd)
 		nil))))
-    (sb-posix:syscall-error (e) (print e) nil)))
+    (sb-posix:syscall-error (e) nil)))
 
 (defun open-keyboard ()
   (setf *envdev-key-fds* nil)
@@ -137,13 +173,15 @@
 	(setf type _type
 	      code _code
 	      value _value)
+        (when (= _type EV_KEY)
+          (write-log "SND ~a" (input-event-to-string event)))
 	(let ((event-size (cffi:foreign-type-size 'input_event)))
 	  (let ((write-size (sb-unix:unix-write *uinput-fd*	; TODO error
 						event
 						0
 						event-size)))
 	    (when (/= event-size write-size)
-	      (p "send-input-event failed ~d" (sb-alien:get-errno)))))))))
+	      (write-log "send-input-event failed ~d" (sb-alien:get-errno)))))))))
 
 (defun mod-sym-to-key (mod-sym)
   (case mod-sym
@@ -158,7 +196,6 @@
   (when *uinput-fd*
     (send-input-event EV_KEY code action) ; TODO error
     (send-input-event EV_SYN SYN_REPORT 0)
-    (p "send-keyboard-event ~a ~a" code action)
     t))
 
 (defmethod send-keyboard-event ((code symbol) action)
@@ -208,7 +245,7 @@
 		do (sb-unix:unix-read fd event (cffi:foreign-type-size 'input_event))
 		   (cffi:with-foreign-slots ((type) event input_event)
 		     (cond ((= type EV_KEY)
-			    (print-event event)
+                            (write-log "REV ~a" (input-event-to-string event))
 			    (return-from receive-keyboard-event t))
 			   ((or (= type EV_SYN)	; 無視
 				(= type EV_MSC)))
@@ -222,7 +259,7 @@
   (loop for fd in *envdev-key-fds*
 	do (handler-case
 	       (sb-posix:ioctl fd EVIOCGRAB (if onoff -1 0))
-	     (sb-posix:syscall-error (e) (print e) nil))))
+	     (sb-posix:syscall-error (e) nil))))
 
 (defun event-type-to-symbol (event-type)
   (case event-type
@@ -239,13 +276,6 @@
     (#.EV_PWR 'EV_PWR)
     (#.EV_FF_STATUS 'EV_FF_STATUS)
     (t event-type)))
-
-(defun print-event (event)
-  (cffi:with-foreign-slots ((type code value) event input_event)
-    (format t "~&        type: ~a, code: ~d, value: ~d~%"
-	    (event-type-to-symbol type)
-	    code value)))
-
 
 (defvar *key-array*
   (let ((array (make-array KEY_CNT :element-type 'fixnum)))
