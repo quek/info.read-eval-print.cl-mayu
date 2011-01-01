@@ -245,7 +245,7 @@
 		do (sb-unix:unix-read fd event (cffi:foreign-type-size 'input_event))
 		   (cffi:with-foreign-slots ((type) event input_event)
 		     (cond ((= type EV_KEY)
-                            (write-log "REV ~a" (input-event-to-string event))
+                            (write-log "rev ~a" (string-downcase (input-event-to-string event)))
 			    (return-from receive-keyboard-event t))
 			   ((or (= type EV_SYN)	; 無視
 				(= type EV_MSC)))
@@ -423,19 +423,21 @@
 	(list (list code action)))))
 
 (defun proc-key (code action)
-  (if (= code KEY_F12)
-      nil
-      (progn
-	(loop for (code action) in (translate-key code action)
-	      if code
-		do (send-keyboard-event code action))
-	t)))
+  (cond ((= code KEY_F12)
+         nil)
+        (t
+         (when (and (= code KEY_F11) (= action +press+)) ; デバッグのためにログにマークを出力する。
+           (write-log "-----------------------------------------------------------------------------"))
+         (loop for (code action) in (translate-key code action)
+               if code
+                 do (send-keyboard-event code action))
+         t)))
 
 (defun main-loop ()
   (open-keyboard-device)
   (unwind-protect
        (progn
-	 (sleep 1)
+	 (sleep 0.5)
 	 (keyboard-grab-onoff t)
 	 (cffi:with-foreign-object (event 'input_event)
 	   (loop

@@ -1,0 +1,36 @@
+SandS で (space +press+) (e +press+) (space +release+) (e +release+)
+のように他のキーよりスペースの方を先にリリースした場合。
+
+rev 2011/01/02 00:10:35.060047 key_p press
+SND 2011/01/02 00:10:35.060417 KEY_L press
+rev 2011/01/02 00:10:35.210241 key_p release
+SND 2011/01/02 00:10:35.210621 KEY_L release
+rev 2011/01/02 00:10:35.810268 key_space press
+SND 2011/01/02 00:10:35.810639 KEY_LEFTSHIFT press
+rev 2011/01/02 00:10:35.901058 key_e press
+SND 2011/01/02 00:10:35.901496 KEY_LEFTSHIFT release
+SND 2011/01/02 00:10:35.901765 KEY_DOT press
+rev 2011/01/02 00:10:35.955578 key_space release     e より space のリリースの方が先になっている
+SND 2011/01/02 00:10:35.955799 KEY_LEFTSHIFT release
+rev 2011/01/02 00:10:36.000945 key_e release
+SND 2011/01/02 00:10:36.001341 KEY_DOT release
+SND 2011/01/02 00:10:36.001506 KEY_LEFTSHIFT press   ここで shift が復活してしまう。
+rev 2011/01/02 00:10:36.042298 key_a press
+SND 2011/01/02 00:10:36.042659 KEY_A press
+rev 2011/01/02 00:10:36.140112 key_a release
+SND 2011/01/02 00:10:36.140482 KEY_A release
+rev 2011/01/02 00:10:40.008865 key_f11 press
+-----------------------------------------------------------------------------
+SND 2011/01/02 00:10:40.009293 KEY_F11 press
+rev 2011/01/02 00:10:40.120090 key_f11 release
+SND 2011/01/02 00:10:40.120492 KEY_F11 release
+rev 2011/01/02 00:10:40.919297 key_space press
+SND 2011/01/02 00:10:40.919669 KEY_LEFTSHIFT press
+rev 2011/01/02 00:10:41.025978 key_space release
+SND 2011/01/02 00:10:41.026348 KEY_LEFTSHIFT release
+SND 2011/01/02 00:10:41.026512 KEY_SPACE press
+SND 2011/01/02 00:10:41.026652 KEY_SPACE release
+rev 2011/01/02 00:10:42.288789 key_a press
+SND 2011/01/02 00:10:42.429923 KEY_A press
+rev 2011/01/02 00:10:42.402268 key_a release
+SND 2011/01/02 00:10:42.431243 KEY_A release
