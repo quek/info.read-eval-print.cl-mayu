@@ -1,5 +1,12 @@
 * TODO
 
+** 一部の 3 つ押しがひろえない
+
+このパターンがひろえない。
+(and KEY_CAPSLOCK KEY_MUHENKAN (or KEY_T KEY_Y KEY_X KEY_B KEY_SLASH KEY_RO))
+KEY_MUHENKAN のかわりに KEY_LEFTALT だとひろえる。
+
+
 ** C-M-F1 等で X に切り替わらない。
 
 これは mayu でも同様。
@@ -7,6 +14,12 @@
 
 
 * DONE
+
+** 同時押し
+
+(def-sequence ((+any+ +no-shift+ KEY_COMMA) (+any+ +shift+ KEY_9)))
+のとき ) を押したまま次のキーを押すと shift 状態での入力になる。
+")u" となるべきところ ")U" となる。
 
 ** SandS で S-Space が打てない。
 

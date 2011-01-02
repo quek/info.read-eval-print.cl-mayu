@@ -394,26 +394,25 @@
 
 (defgeneric compute-send-sequence (sequence-key sequence-value current-mod code action)
   (:method (sequence-key sequence-value current-mod code (action (eql +repeat+)))
-    (loop for i in sequence-value
-          if (numberp i)
-            do (list (list i +repeat+))))
+    (let ((key (find-if #'numberp sequence-value)))
+      (append *sequence-temp-mod*
+              (list (list key +release+)
+                    (list key +press+))
+              (loop for (c v) in *sequence-temp-mod*
+                    collect (list c +release+)))))
   (:method (sequence-key sequence-value current-mod code (action (eql +press+)))
     (setf *sequence-temp-mod* (compute-sequence-temp-mod sequence-key sequence-value current-mod))
     (setf *sequence-temp-mod-for-current-mod* *sequence-temp-mod*)
     (let ((key (find-if #'numberp sequence-value)))
-      (if key
-          (append *sequence-temp-mod*
-                  (list (list key +press+)))
-          (list ()))))
+      (append *sequence-temp-mod*
+              (list (list key +press+))
+              (loop for (c v) in *sequence-temp-mod*
+                    collect (list c +release+)))))
   (:method (sequence-key sequence-value current-mod code (action (eql +release+)))
-    (let ((mod (loop for (c v) in *sequence-temp-mod*
-                     collect (list  c (if (= v +press+) +release+ +press+))))
-          (key (find-if #'numberp sequence-value)))
+    (let ((key (find-if #'numberp sequence-value)))
       (setf *sequence-temp-mod* nil)
       (setf *sequence-temp-mod-for-current-mod* nil)
-      (if key
-          (append (list (list key +release+)) mod)
-          (list ())))))
+      (list (list key +release+)))))
 
 (defun sequence-match-p (a b)
   "a is input. b is key in *sequence-table*."

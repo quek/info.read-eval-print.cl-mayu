@@ -50,12 +50,4 @@
   ((+any+ +shift+    KEY_DOT)           (+any+ KEY_DOT))
   ((+any+ +shift+ KEY_9)                (+any+ +shift+ KEY_COMMA))
   ((+any+ +shift+ KEY_0)                (+any+ +shift+ KEY_DOT))
-
-
-;;  ((KEY_COMMA)       (+shift+ KEY_9))
-;;  ((+shift+ KEY_COMMA)          (KEY_COMMA))
-;;  ((KEY_DOT)           (+shift+ KEY_0))
-;;  ((+shift+ KEY_DOT)              (KEY_DOT))
-;;  ((+shift+ KEY_9)                (+shift+ KEY_COMMA))
-;;  ((+shift+ KEY_0)                (+shift+ KEY_DOT))
   )
