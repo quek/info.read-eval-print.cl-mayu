@@ -85,7 +85,7 @@
 	      (progn
 		(sb-posix:close fd)
 		nil))))
-    (sb-posix:syscall-error (e) nil)))
+    (sb-posix:syscall-error () nil)))
 
 (defun open-keyboard ()
   (setf *envdev-key-fds* nil)
@@ -183,12 +183,20 @@
 	    (when (/= event-size write-size)
 	      (write-log "send-input-event failed ~d" (sb-alien:get-errno)))))))))
 
+;; TODO RIGHT key
 (defun mod-sym-to-key (mod-sym)
   (case mod-sym
     (+alt+ KEY_LEFTALT)
     (+ctrl+ KEY_LEFTCTRL)
     (+meta+ KEY_LEFTMETA)
     (+shift+ KEY_LEFTSHIFT)))
+
+(defun mod-key-to-sym (mod-key-code)
+  (case mod-key-code
+    ((#.KEY_LEFTALT #.KEY_RIGHTALT) +alt+)
+    ((#.KEY_LEFTCTRL #.KEY_RIGHTCTRL) +ctrl+)
+    ((#.KEY_LEFTMETA #.KEY_RIGHTMETA) +meta+)
+    ((#.KEY_LEFTSHIFT #.KEY_RIGHTSHIFT) +shift+)))
 
 (defgeneric send-keyboard-event (code action))
 
@@ -259,7 +267,7 @@
   (loop for fd in *envdev-key-fds*
 	do (handler-case
 	       (sb-posix:ioctl fd EVIOCGRAB (if onoff -1 0))
-	     (sb-posix:syscall-error (e) nil))))
+	     (sb-posix:syscall-error () nil))))
 
 (defun event-type-to-symbol (event-type)
   (case event-type
@@ -278,13 +286,38 @@
     (t event-type)))
 
 (defvar *key-array*
-  (let ((array (make-array KEY_CNT :element-type 'fixnum)))
+  (let ((array (make-array KEY_CNT)))
     (loop for i from 0 below KEY_CNT
 	  do (setf (aref array i) i))
     array))
 
 (defvar *one-shot* nil)
 (defvar *one-shot-status* nil)
+
+(defvar *sequence-table* nil)
+(defvar *sequence-temp-mod* nil)
+(defvar *sequence-temp-mod-for-current-mod* nil)
+
+(defun release-mod (mod-key-code)
+  (let ((seq (list (mod-key-to-sym mod-key-code) +release+)))
+    (write-log "before ~a" *sequence-temp-mod*)
+    (setf *sequence-temp-mod*
+          (remove seq *sequence-temp-mod* :test #'equal))
+    (write-log "after ~a" *sequence-temp-mod*)
+    seq))
+
+(defun current-mod ()
+  (let ((mod `(,@(if (alt-press-p)     '(+alt+))
+                 ,@(if (ctrl-press-p)  '(+ctrl+))
+                 ,@(if (meta-press-p)  '(+meta+))
+                 ,@(if (shift-press-p) '(+shift+)))))
+    (loop for (c v) in *sequence-temp-mod-for-current-mod*
+          do (if (= v +press+)
+                 (setf mod (delete c mod))
+                 (pushnew c mod)))
+    mod))
+
+
 
 (defun proc-one-shot (code action)
   (let ((mod (cdr (assoc code *one-shot*))))
@@ -294,32 +327,17 @@
 	       `((,mod ,+press+)))
 	      ((and (eq *one-shot-status* :only) (= action +release+)) ; 他に何も押さなかった場合
 	       (setf *one-shot-status* nil)
-	       `((,mod ,+release+)
+	       `(,(release-mod mod)
 		 (,code ,+press+)
 		 (,code ,+release+)))
 	      ((= action +release+)
 	       (setf *one-shot-status* nil)
-	       `((,mod ,+release+)))
+	       `(,(release-mod mod)))
 	      (t (list ())))
 	(progn
 	  (when (eq *one-shot-status* :only)
 	    (setf *one-shot-status* :other))
 	  nil))))
-
-(defvar *sequence-table* nil)
-(defvar *sequence-temp-mod* nil)
-
-
-(defun current-mod ()
-  (let ((mod `(,@(if (alt-press-p)     '(+alt+))
-                 ,@(if (ctrl-press-p)  '(+ctrl+))
-                 ,@(if (meta-press-p)  '(+meta+))
-                 ,@(if (shift-press-p) '(+shift+)))))
-    (loop for (c v) in *sequence-temp-mod*
-          do (if (= v +press+)
-                 (setf mod (delete c mod))
-                 (pushnew c mod)))
-    mod))
 
 (defun find-no-mod (x)
   (find x *modifiers* :key #'cadr))
@@ -352,6 +370,7 @@
             do (list (list i +repeat+))))
   (:method (sequence-key sequence-value current-mod code (action (eql +press+)))
     (setf *sequence-temp-mod* (compute-sequence-temp-mod sequence-key sequence-value current-mod))
+    (setf *sequence-temp-mod-for-current-mod* *sequence-temp-mod*)
     (let ((key (find-if #'numberp sequence-value)))
       (if key
           (append *sequence-temp-mod*
@@ -362,6 +381,7 @@
                      collect (list  c (if (= v +press+) +release+ +press+))))
           (key (find-if #'numberp sequence-value)))
       (setf *sequence-temp-mod* nil)
+      (setf *sequence-temp-mod-for-current-mod* nil)
       (if key
           (append (list (list key +release+)) mod)
           (list ())))))
