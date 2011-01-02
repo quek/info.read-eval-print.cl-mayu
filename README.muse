@@ -1,6 +1,20 @@
-This is the stub README.txt for the "mayu" project.
+#title cl-mayu
 
+mayu for linux を参考に作ったキーボードカスタマイズツールです。
+SBCL で動きます。
+
+カーネルモジュール uinput を使います。
+
+uinput まわりは mayu for linux をおおいに参考にさせていただきました。
+ありがとうございす。
+
+設定ファイル config.lisp は窓使いの憂鬱とは全く別ものです。
+
+ソースは github にあります。
+https://github.com/quek/info.read-eval-print.cl-mayu
 
 参考
  - [[http://mayu.sourceforge.net/][窓使いの憂鬱]]
  - [[http://www.aya.or.jp/~takuo/input_subsystem/input_subsystem.html][Linux Input Subsystemの使い方]]
+
+; labels: Common Lisp

@@ -499,16 +499,16 @@
 ;; (main-loop)
 
 
-(defmacro set-key-array (&rest args)
+(defmacro set-key-subst (&rest args)
   `(progn
      ,@(loop for (a b) in args
              collect `(setf (aref *key-array* ,a) ,b))))
 
-(defmacro def-one-shot (&rest args)
+(defmacro set-one-shot (&rest args)
   `(setf *one-shot*  (list ,@(loop for (a b) in args
                                    collect `(cons ,a ,b)))))
 
-(defmacro def-sequence (&rest args)
+(defmacro set-sequence (&rest args)
   `(setf *sequence-table* (list ,@(loop for (a b) in args
                                         collect `(cons (list ,@a) (list ,@b))))))
 

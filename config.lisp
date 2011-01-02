@@ -1,6 +1,7 @@
 (in-package :mayu)
 
-(set-key-array (KEY_MINUS       KEY_LEFTBRACE)
+;; キーの入れ換え。
+(set-key-subst (KEY_MINUS       KEY_LEFTBRACE)
                (KEY_EQUAL       KEY_RIGHTBRACE)
                (KEY_Q           KEY_APOSTROPHE)
                (KEY_W           KEY_COMMA)
@@ -40,14 +41,13 @@
                (KEY_MUHENKAN    KEY_LEFTALT)
                )
 
-(def-one-shot
-    (KEY_SPACE   KEY_LEFTSHIFT))
+;; SandS
+(set-one-shot (KEY_SPACE   KEY_LEFTSHIFT))
 
-(def-sequence
-    ((+any+ +no-shift+ KEY_COMMA)       (+any+ +shift+ KEY_9))
-    ((+any+ +shift+    KEY_COMMA)       (+any+ KEY_COMMA))
-  ((+any+ +no-shift+ KEY_DOT)           (+any+ +shift+ KEY_0))
-  ((+any+ +shift+    KEY_DOT)           (+any+ KEY_DOT))
-  ((+any+ +shift+ KEY_9)                (+any+ +shift+ KEY_COMMA))
-  ((+any+ +shift+ KEY_0)                (+any+ +shift+ KEY_DOT))
-  )
+;; キー定義。
+(set-sequence ((+any+ +no-shift+ KEY_COMMA)     (+any+ +shift+ KEY_9))
+              ((+any+ +shift+    KEY_COMMA)     (+any+ KEY_COMMA))
+              ((+any+ +no-shift+ KEY_DOT)       (+any+ +shift+ KEY_0))
+              ((+any+ +shift+    KEY_DOT)       (+any+ KEY_DOT))
+              ((+any+ +shift+ KEY_9)            (+any+ +shift+ KEY_COMMA))
+              ((+any+ +shift+ KEY_0)            (+any+ +shift+ KEY_DOT)))
