@@ -1,11 +1,16 @@
 * TODO
 
+** C-M-F1 等で X に切り替わらない。
+
+これは mayu でも同様。
+
 
 
 * DONE
 
-SandS で (space +press+) (e +press+) (space +release+) (e +release+)
-のように他のキーよりスペースの方を先にリリースした場合。
+** SandS で S-Space が打てない。
+
+** SandS で (space +press+) (e +press+) (space +release+) (e +release+)のように他のキーよりスペースの方を先にリリースした場合。
 
 rev 2011/01/02 00:10:35.060047 key_p press
 SND 2011/01/02 00:10:35.060417 KEY_L press

@@ -7,10 +7,16 @@
     (cffi:with-foreign-slots ((tv_sec tv_usec) time timeval)
       (multiple-value-bind (sec min hour day month year)
           (decode-universal-time (+ tv_sec +posix-epoch+))
-        (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~[release~;press~;repeat~]"
+        (if (= type EV_KEY)
+            (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~[release~;press~;repeat~]"
                 year month day hour min sec tv_usec
                 (key-code-to-symbol code)
-                value)))))
+                value)
+            (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~a ~a"
+                year month day hour min sec tv_usec
+                (event-type-to-symbol type)
+                code
+                value))))))
 
 (defvar *log-pathname* #p"/tmp/cl-mayu.log")
 
@@ -164,6 +170,10 @@
   `(when (and *envdev-key-fds* *uinput-fd*)
      ,@body))
 
+(defun write-input-event (fd input-event)
+  (sb-unix:unix-write fd input-event 0
+                      (cffi:foreign-type-size 'input_event)))
+
 (defun send-input-event (_type _code _value)
   (when *uinput-fd*
     (cffi:with-foreign-objects ((event 'input_event))
@@ -238,6 +248,8 @@
   (or *left-meta* *right-meta*))
 
 
+(defvar *mayu-enabled-p* t)
+
 (defun receive-keyboard-event (event)
   (when-open
     (sb-alien:with-alien ((fd-set (sb-alien:struct sb-unix:fd-set)))
@@ -251,17 +263,24 @@
 	      and fd in *envdev-key-fds*
 	      if (sb-unix:fd-isset fd fd-set)
 		do (sb-unix:unix-read fd event (cffi:foreign-type-size 'input_event))
-		   (cffi:with-foreign-slots ((type) event input_event)
-		     (cond ((= type EV_KEY)
-                            (write-log "rev ~a" (string-downcase (input-event-to-string event)))
-			    (return-from receive-keyboard-event t))
-			   ((or (= type EV_SYN)	; 無視
-				(= type EV_MSC)))
-			   (t
-			    ;; キーボードイベント以外は、そのまま出力
-			    (sb-unix:unix-write
-			     *uinput-fd* event 0
-			     (cffi:foreign-type-size 'input_event))))))))))
+                   (cffi:with-foreign-slots ((type code value) event input_event)
+                     (if *mayu-enabled-p*
+                         (cond ((= type EV_KEY)
+                                (write-log "rev ~a" (string-downcase (input-event-to-string event)))
+                                (return-from receive-keyboard-event t))
+                               ((or (= type EV_SYN)	; 無視
+                                    (= type EV_MSC)))
+                               (t
+                                ;; キーボードイベント以外は、そのまま出力
+                                (sb-unix:unix-write
+                                 *uinput-fd* event 0
+                                 (cffi:foreign-type-size 'input_event))))
+                         (progn
+                           (write-log "raw ~a" (input-event-to-string event))
+                           (when (and (= type EV_KEY) (= code KEY_F11)
+                                      (= value +press+))
+                             (setf *mayu-enabled-p* t))
+                           (write-input-event *uinput-fd* event)))))))))
 
 (defun keyboard-grab-onoff (onoff)
   (loop for fd in *envdev-key-fds*
@@ -317,22 +336,32 @@
                  (pushnew c mod)))
     mod))
 
-
+(defgeneric mod-press-p (mod)
+  (:method ((mod fixnum))
+    (mod-press-p (mod-key-to-sym mod)))
+  (:method ((mod symbol))
+    (find mod (current-mod))))
 
 (defun proc-one-shot (code action)
   (let ((mod (cdr (assoc code *one-shot*))))
     (if mod
-	(cond ((and (not *one-shot-status*) (= action +press+))
-	       (setf *one-shot-status* :only)
-	       `((,mod ,+press+)))
+	(cond ((and (null *one-shot-status*) (= action +press+))
+               (if (mod-press-p mod)
+                   nil ; 即に mod キーが有効になっているので、通常動作をする。
+                   (progn
+                     (setf *one-shot-status* :only)
+                     `((,mod ,+press+)))))
 	      ((and (eq *one-shot-status* :only) (= action +release+)) ; 他に何も押さなかった場合
 	       (setf *one-shot-status* nil)
 	       `(,(release-mod mod)
-		 (,code ,+press+)
-		 (,code ,+release+)))
+                  (,code ,+press+)
+                  (,code ,+release+)))
 	      ((= action +release+)
-	       (setf *one-shot-status* nil)
-	       `(,(release-mod mod)))
+               (if *one-shot-status*
+                   (progn
+                     (setf *one-shot-status* nil)
+                     `(,(release-mod mod)))
+                   nil)) ; 即に mod キーが有効になっているので、通常動作をする。
 	      (t (list ())))
 	(progn
 	  (when (eq *one-shot-status* :only)
@@ -443,15 +472,17 @@
 	(list (list code action)))))
 
 (defun proc-key (code action)
-  (cond ((= code KEY_F12)
-         nil)
-        (t
-         (when (and (= code KEY_F11) (= action +press+)) ; デバッグのためにログにマークを出力する。
-           (write-log "-----------------------------------------------------------------------------"))
-         (loop for (code action) in (translate-key code action)
-               if code
-                 do (send-keyboard-event code action))
-         t)))
+  (if (= code KEY_F12)
+      nil
+      (progn
+        (cond ((and (= code KEY_F11) (= action +press+))
+               (setf *mayu-enabled-p* nil))
+              ((and (= code KEY_F10) (= action +press+)) ; デバッグのためにログにマークを出力する。
+               (write-log "-----------------------------------------------------------------------------")))
+        (loop for (code action) in (translate-key code action)
+              if code
+                do (send-keyboard-event code action))
+        t)))
 
 (defun main-loop ()
   (open-keyboard-device)
