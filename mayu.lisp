@@ -234,16 +234,16 @@
   (m KEY_LEFTMETA       *left-meta*)
   (m KEY_RIGHTMETA      *right-meta*))
 
-(macrolet ((m (sym left right)
+(macrolet ((m (sym left-var right-var left-key right-key)
              `(defmethod send-keyboard-event ((code (eql ,sym)) (action (eql +release+)))
-                (when ,left
-                  (send-keyboard-event KEY_LEFTSHIFT +release+))
-                (when ,right
-                  (send-keyboard-event KEY_RIGHTSHIFT +release+)))))
-  (m +shift+    *left-shift*    *right-shift*)
-  (m +ctrl+     *left-ctrl*     *right-ctrl*)
-  (m +alt+      *left-alt*      *right-alt*)
-  (m +meta+     *left-meta*     *right-meta*))
+                (when ,left-var
+                  (send-keyboard-event ,left-key +release+))
+                (when ,right-var
+                  (send-keyboard-event ,right-key +release+)))))
+  (m +shift+    *left-shift*    *right-shift*   KEY_LEFTSHIFT   KEY_RIGHTSHIFT)
+  (m +ctrl+     *left-ctrl*     *right-ctrl*    KEY_LEFTCTRL    KEY_RIGHTCTRL)
+  (m +alt+      *left-alt*      *right-alt*     KEY_LEFTALT     KEY_RIGHTALT)
+  (m +meta+     *left-meta*     *right-meta*    KEY_LEFTMETA    KEY_RIGHTMETA))
 
 
 (defun shift-press-p ()
@@ -353,6 +353,9 @@
   (:method ((mod symbol))
     (find mod (current-mod))))
 
+(defun find-no-mod (x)
+  (find x *modifiers* :key #'cadr))
+
 (defun proc-one-shot (code action)
   (let ((mod (cdr (assoc code *one-shot*))))
     (if mod
@@ -379,10 +382,8 @@
 	    (setf *one-shot-status* :other))
 	  nil))))
 
-(defun find-no-mod (x)
-  (find x *modifiers* :key #'cadr))
-
 (defun compute-sequence-temp-mod (sequence-key sequence-value current-mod)
+  (write-log "compute-sequence-temp-mod ~a ~a ~a" sequence-key sequence-value current-mod)
   (let (any)
     (append
      (loop for i in sequence-value
@@ -392,7 +393,7 @@
                         (not (member i current-mod)))
                   collect (list i +press+))
      (if any
-         ;; ((+any+ +shift+ KEY_COMMA) (+any+ KEY_COMMA)) の場合に shift をリリースする。
+         ;; ((+any+ +shift+ KEY_COMMA) (+any+ KEY_COMMA)) の場合に shift をリリースするパターン
          (loop for i in sequence-key
                if (and (symbolp i)
                        (not (eq i +any+))
@@ -404,24 +405,35 @@
                unless (member i sequence-value)
                  collect (list i +release+))))))
 
+(defun reverse-action-sequnce (sequence)
+  (loop for (c v) in sequence
+        collect (list c (cond ((= v +press+)
+                               +release+)
+                              ((= v +release+)
+                               +press+)
+                              (t v)))))
+
 (defgeneric compute-send-sequence (sequence-key sequence-value current-mod code action)
-  (:method (sequence-key sequence-value current-mod code (action (eql +repeat+)))
-    (let ((key (find-if #'numberp sequence-value)))
-      (append *sequence-temp-mod*
-              (list (list key +release+)
-                    (list key +press+))
-              (loop for (c v) in *sequence-temp-mod*
-                    collect (list c +release+)))))
+
   (:method (sequence-key sequence-value current-mod code (action (eql +press+)))
+    (write-log "compute-send-sequence ~@{~a ~}" sequence-key sequence-value current-mod code action)
     (setf *sequence-temp-mod* (compute-sequence-temp-mod sequence-key sequence-value current-mod))
     (setf *sequence-temp-mod-for-current-mod* *sequence-temp-mod*)
     (let ((key (find-if #'numberp sequence-value)))
       (append *sequence-temp-mod*
               (list (list key +press+))
-              (loop for (c v) in *sequence-temp-mod*
-                    collect (list c +release+)))))
+              (reverse-action-sequnce *sequence-temp-mod*))))
+
+  (:method (sequence-key sequence-value current-mod code (action (eql +repeat+)))
+    (let ((key (find-if #'numberp sequence-value)))
+      (append *sequence-temp-mod*
+              (list (list key +release+)
+                    (list key +press+))
+              (reverse-action-sequnce *sequence-temp-mod*))))
+
   (:method (sequence-key sequence-value current-mod code (action (eql +release+)))
     (let ((key (find-if #'numberp sequence-value)))
+      (write-log "compute-sequence-temp-mod release ~a ~a" *sequence-temp-mod* *sequence-temp-mod-for-current-mod*)
       (setf *sequence-temp-mod* nil)
       (setf *sequence-temp-mod-for-current-mod* nil)
       (list (list key +release+)))))
@@ -443,37 +455,17 @@
             unless (member i b)
               do (return-from sequence-match-p nil))))
   t)
-;; (sequence-match-p (list KEY_COMMA) (list +any+ +no-shift+ KEY_COMMA))
-;; (sequence-match-p (list +shift+ KEY_0) (list +any+ +shift+ KEY_0))
-;; (sequence-match-p (list +shift+ KEY_DOT) (list +any+ +no-shift+ KEY_DOT))
 
 
 (defun proc-sequence (code action)
   (let* ((current-mod (current-mod))
          (current-sequence (append current-mod (list code))))
+    (write-log "proce-sequence ~a ~a" current-mod current-sequence)
     (loop for (key . val) in *sequence-table*
           if (sequence-match-p current-sequence key)
             do (return-from proc-sequence
                  (compute-send-sequence key val current-mod code action)))
     nil))
-#|
-(let ((*sequence-temp-mod* nil))
-  (compute-send-sequence (list +any+ +shift+ KEY_DOT) (list +any+ KEY_DOT) (list +shift+) KEY_DOT +press+))
-(let ((*sequence-temp-mod* nil))
-  (compute-send-sequence (list +any+ +shift+ KEY_DOT) (list +any+ KEY_DOT) (list +shift+ +alt+) KEY_DOT +press+))
-(let ((*sequence-temp-mod* nil))
-  (compute-send-sequence (list +any+ +shift+ KEY_0) (list +any+ +shift+ KEY_DOT) (list +shift+) KEY_0 +press+))
-|#
-
-
-;;(defun equal-unorder (a b)
-;;  (equal (sort a #'< :key #'car)
-;;         (sort b #'< :key #'car)))
-;;(assert (equal-unorder `((,KEY_LEFTSHIFT 1) (,KEY_LEFTALT 1) (,KEY_LEFTCTRL 0) (,KEY_B 1))
-;;                       (let ((*sequence-temp-mod* nil)
-;;                             (*left-ctrl* t)
-;;                             (*sequence-table* `(((+ctrl+ ,KEY_A) . (+shift+ +alt+ ,KEY_B)))))
-;;                         (proc-sequence KEY_A +press+))))
 
 
 (defun translate-key (code action)
@@ -490,10 +482,11 @@
                (setf *mayu-enabled-p* nil))
               ((and (= code KEY_F10) (= action +press+)) ; デバッグのためにログにマークを出力する。
                (write-log "-----------------------------------------------------------------------------")))
-        (loop for (code action) in (translate-key code action)
-              if code
-                do (send-keyboard-event code action))
-        t)))
+        (let ((ret (translate-key code action)))
+          (loop for (code action) in ret
+                if code
+                  do (send-keyboard-event code action))
+          ret))))
 
 (defun main-loop ()
   (open-keyboard-device)
@@ -511,6 +504,8 @@
 ;; (main-loop)
 
 
+;;; config.lisp 用のマクロ
+
 (defmacro set-key-subst (&rest args)
   `(progn
      ,@(loop for (a b) in args
@@ -523,77 +518,3 @@
 (defmacro set-sequence (&rest args)
   `(setf *sequence-table* (list ,@(loop for (a b) in args
                                         collect `(cons (list ,@a) (list ,@b))))))
-
-#|
-(progn
-  (sleep 0.5)
-  (open-keyboard-device)
-  (unwind-protect
-       (progn
-	 (print *envdev-key-fds*)
-	 (print *uinput-fd*)
-	 (keyboard-grab-onoff t)
-	 (cffi:with-foreign-object (event 'input_event)
-	   (loop repeat 50 do
-	     (receive-keyboard-event event)
-	     (cffi:with-foreign-slots ((type code action) event input_event)
-	       (send-keyboard-event (1+ code) action)))))
-    (close-keyboard-device)))
-
-(unwind-protect
-     (progn
-       (create-uinput-keyboard)
-       (sleep 0.1)			; sleep が必要みたい
-       (send-keyboard-event KEY_CNT 0)
-       (send-keyboard-event KEY_A 1)
-       (send-keyboard-event KEY_A 0)
-       (send-keyboard-event KEY_B 1)
-       (send-keyboard-event KEY_B 0)
-       (sleep 0.1)) 			; sleep が必要みたい
-  (destroy-uinput-keyboard))
-
-(let ((fd (sb-posix:open "/dev/input/event1" (logior sb-posix:o-rdonly sb-posix:o-ndelay))))
-  (unwind-protect
-       (progn
-	 (cffi:with-foreign-objects ((devinfo 'input_id))
-	   (sb-posix:ioctl fd EVIOCGID (sb-alien:sap-alien devinfo (* t)))
-	   (cffi:with-foreign-slots ((bustype) devinfo input_id)
-	     (print bustype)
-	     ))
-	 )
-    (sb-posix:close fd)))
-
-
-(let ((fd (sb-posix:open "/dev/input/event1" (logior sb-posix:o-rdonly sb-posix:o-ndelay))))
-  (unwind-protect
-       (progn
-	 (let ((size (1+ (truncate (/ EV_MAX 8)))))
-	   (cffi:with-foreign-objects ((evtype-bitmask :uint8 size))
-	     (sb-posix:ioctl fd
-			     (EVIOCGBIT 0 (* 8 size))
-			     (sb-alien:sap-alien evtype-bitmask (* t)))
-	     ;; EV_SYN, EV_KEY, EV_REP ならおｋ
-	     (let ((value (cffi:mem-ref evtype-bitmask :uint32)))
-	       (and (logbitp EV_SYN value)
-		    (logbitp EV_KEY value)
-		    (logbitp EV_REP value)))))
-	 )
-    (sb-posix:close fd)))
-
-(let ((fd (sb-posix:open "/dev/input/event1" (logior sb-posix:o-rdonly sb-posix:o-ndelay))))
-  (unwind-protect
-       (progn
-	 (keyboard-device-p fd)
-	 )
-    (sb-posix:close fd)))
-
-(let ((fd (open-key-device 1)))
-  (when fd
-    (sb-posix:close fd)))
-
-
-
-(cffi:with-foreign-objects ((devinfo 'input_id))
-  (print (sb-alien:sap-alien devinfo (* t)))
-  (print devinfo))
-|#

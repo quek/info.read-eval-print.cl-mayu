@@ -15,6 +15,24 @@ KEY_MUHENKAN のかわりに KEY_LEFTALT だとひろえる。
 
 * DONE
 
+** ((shfit +press+) (w press)(w release)(e press)) で ) にならない。
+
+(+shift+ +release+) したのが復帰してない。
+
+rev 2011/01/03 13:22:08.836002 key_rightshift press
+SND 2011/01/03 13:22:08.836412 KEY_RIGHTSHIFT press
+rev 2011/01/03 13:22:09.036009 key_w press
+SND 2011/01/03 13:22:09.036415 KEY_RIGHTSHIFT release
+SND 2011/01/03 13:22:09.036623 KEY_COMMA press
+rev 2011/01/03 13:22:09.068016 key_e press
+SND 2011/01/03 13:22:09.068447 KEY_DOT press
+rev 2011/01/03 13:22:09.179900 key_w release
+SND 2011/01/03 13:22:09.180147 KEY_COMMA release
+rev 2011/01/03 13:22:09.219902 key_e release
+SND 2011/01/03 13:22:09.220140 KEY_0 release            これが KEY_DOT release になるべき。
+rev 2011/01/03 13:22:09.403997 key_rightshift release
+SND 2011/01/03 13:22:09.404417 KEY_RIGHTSHIFT release
+
 ** 同時押し
 
 (def-sequence ((+any+ +no-shift+ KEY_COMMA) (+any+ +shift+ KEY_9)))

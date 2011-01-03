@@ -50,4 +50,7 @@
               ((+any+ +no-shift+ KEY_DOT)       (+any+ +shift+ KEY_0))
               ((+any+ +shift+    KEY_DOT)       (+any+ KEY_DOT))
               ((+any+ +shift+ KEY_9)            (+any+ +shift+ KEY_COMMA))
-              ((+any+ +shift+ KEY_0)            (+any+ +shift+ KEY_DOT)))
+              ((+any+ +shift+ KEY_0)            (+any+ +shift+ KEY_DOT))
+              ((+any+ +ctrl+ KEY_H)             (+any+ KEY_BACKSPACE))
+              ((+any+ +ctrl+ KEY_LEFTBRACE)     (+any+ KEY_ESC))
+              ((+any+ +ctrl+ KEY_M)             (+any+ KEY_ENTER)))
