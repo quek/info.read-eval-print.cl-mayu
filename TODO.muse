@@ -15,6 +15,14 @@ KEY_MUHENKAN のかわりに KEY_LEFTALT だとひろえる。
 
 * DONE
 
+** SandS で (a press) (space press) (a release) (space release) の時 space が入らない。
+
+<src lang="lisp">
+ (when (and (eq *one-shot-status* :only) (= action +press+)) ; (= action +press+) を追加。
+   (setf *one-shot-status* :other))
+</src>
+
+
 ** ((shfit +press+) (w press)(w release)(e press)) で ) にならない。
 
 (+shift+ +release+) したのが復帰してない。

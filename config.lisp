@@ -39,6 +39,7 @@
                (KEY_SLASH       KEY_Z)
                (KEY_HENKAN      KEY_LEFTALT)
                (KEY_MUHENKAN    KEY_LEFTALT)
+               (KEY_KATAKANAHIRAGANA 199)
                )
 
 ;; SandS

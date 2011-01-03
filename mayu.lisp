@@ -378,7 +378,7 @@
                    nil)) ; 即に mod キーが有効になっているので、通常動作をする。
 	      (t (list ())))
 	(progn
-	  (when (eq *one-shot-status* :only)
+	  (when (and (eq *one-shot-status* :only) (= action +press+))
 	    (setf *one-shot-status* :other))
 	  nil))))
 
