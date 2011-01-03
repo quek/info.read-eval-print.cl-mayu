@@ -1,5 +1,9 @@
 (in-package :mayu)
 
+(defvar *log-pathname* #p"/tmp/cl-mayu.log")
+
+(defvar *log-stream* nil)
+
 (defconstant +posix-epoch+ (encode-universal-time 0 0 0 1 1 1970 0))
 
 (defun input-event-to-string (event)
@@ -17,10 +21,6 @@
                 (event-type-to-symbol type)
                 code
                 value))))))
-
-(defvar *log-pathname* #p"/tmp/cl-mayu.log")
-
-(defvar *log-stream* nil)
 
 (defgeneric write-log (format &rest args))
 
@@ -53,7 +53,6 @@
 (defconstant +evdev-minors+ 32)
 (defvar *envdev-key-fds* ())
 (defvar *uinput-fd* nil)
-
 
 
 (defun keyboard-device-p (fd)
@@ -235,6 +234,18 @@
   (m KEY_LEFTMETA       *left-meta*)
   (m KEY_RIGHTMETA      *right-meta*))
 
+(macrolet ((m (sym left right)
+             `(defmethod send-keyboard-event ((code (eql ,sym)) (action (eql +release+)))
+                (when ,left
+                  (send-keyboard-event KEY_LEFTSHIFT +release+))
+                (when ,right
+                  (send-keyboard-event KEY_RIGHTSHIFT +release+)))))
+  (m +shift+    *left-shift*    *right-shift*)
+  (m +ctrl+     *left-ctrl*     *right-ctrl*)
+  (m +alt+      *left-alt*      *right-alt*)
+  (m +meta+     *left-meta*     *right-meta*))
+
+
 (defun shift-press-p ()
   (or *left-shift* *right-shift*))
 
@@ -378,16 +389,17 @@
            if (eq i +any+)
              do (setf any t)
            else if (and (symbolp i)
-                        (not (eq i +any+))
                         (not (member i current-mod)))
                   collect (list i +press+))
      (if any
+         ;; ((+any+ +shift+ KEY_COMMA) (+any+ KEY_COMMA)) の場合に shift をリリースする。
          (loop for i in sequence-key
                if (and (symbolp i)
                        (not (eq i +any+))
                        (not (find-no-mod i))
                        (not (member i sequence-value)))
                  collect (list i +release+))
+         ;; sequence-value にないものは全てリリースする。
          (loop for i in current-mod
                unless (member i sequence-value)
                  collect (list i +release+))))))

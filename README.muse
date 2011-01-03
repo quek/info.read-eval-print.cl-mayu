@@ -18,3 +18,4 @@ https://github.com/quek/info.read-eval-print.cl-mayu
  - [[http://www.aya.or.jp/~takuo/input_subsystem/input_subsystem.html][Linux Input Subsystemの使い方]]
 
 ; labels: Common Lisp
+; post-id 4787914155880739230
