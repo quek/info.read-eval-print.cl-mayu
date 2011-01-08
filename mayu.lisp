@@ -192,72 +192,6 @@
 	    (when (/= event-size write-size)
 	      (write-log "send-input-event failed ~d" (sb-alien:get-errno)))))))))
 
-;; TODO RIGHT key
-(defun mod-sym-to-key (mod-sym)
-  (case mod-sym
-    (+alt+ KEY_LEFTALT)
-    (+ctrl+ KEY_LEFTCTRL)
-    (+meta+ KEY_LEFTMETA)
-    (+shift+ KEY_LEFTSHIFT)))
-
-(defun mod-key-to-sym (mod-key-code)
-  (case mod-key-code
-    ((#.KEY_LEFTALT #.KEY_RIGHTALT) +alt+)
-    ((#.KEY_LEFTCTRL #.KEY_RIGHTCTRL) +ctrl+)
-    ((#.KEY_LEFTMETA #.KEY_RIGHTMETA) +meta+)
-    ((#.KEY_LEFTSHIFT #.KEY_RIGHTSHIFT) +shift+)))
-
-(defgeneric send-keyboard-event (code action))
-
-(defmethod send-keyboard-event (code action)
-  (when *uinput-fd*
-    (send-input-event EV_KEY code action) ; TODO error
-    (send-input-event EV_SYN SYN_REPORT 0)
-    t))
-
-(defmethod send-keyboard-event ((code symbol) action)
-  (send-keyboard-event (mod-sym-to-key code) action))
-
-(macrolet ((m (key ver)
-             `(progn
-                (defvar ,ver nil)
-                (defmethod send-keyboard-event :after ((code (eql ,key)) (action (eql +press+)))
-                  (setf ,ver t))
-                (defmethod send-keyboard-event :after ((code (eql ,key)) (action (eql +release+)))
-                  (setf ,ver nil)))))
-  (m KEY_LEFTSHIFT      *left-shift*)
-  (m KEY_RIGHTSHIFT     *right-shift*)
-  (m KEY_LEFTCTRL       *left-ctrl*)
-  (m KEY_RIGHTCTRL      *right-ctrl*)
-  (m KEY_LEFTALT        *left-alt*)
-  (m KEY_RIGHTALT       *right-alt*)
-  (m KEY_LEFTMETA       *left-meta*)
-  (m KEY_RIGHTMETA      *right-meta*))
-
-(macrolet ((m (sym left-var right-var left-key right-key)
-             `(defmethod send-keyboard-event ((code (eql ,sym)) (action (eql +release+)))
-                (when ,left-var
-                  (send-keyboard-event ,left-key +release+))
-                (when ,right-var
-                  (send-keyboard-event ,right-key +release+)))))
-  (m +shift+    *left-shift*    *right-shift*   KEY_LEFTSHIFT   KEY_RIGHTSHIFT)
-  (m +ctrl+     *left-ctrl*     *right-ctrl*    KEY_LEFTCTRL    KEY_RIGHTCTRL)
-  (m +alt+      *left-alt*      *right-alt*     KEY_LEFTALT     KEY_RIGHTALT)
-  (m +meta+     *left-meta*     *right-meta*    KEY_LEFTMETA    KEY_RIGHTMETA))
-
-
-(defun shift-press-p ()
-  (or *left-shift* *right-shift*))
-
-(defun ctrl-press-p ()
-  (or *left-ctrl* *right-ctrl*))
-
-(defun alt-press-p ()
-  (or *left-alt* *right-alt*))
-
-(defun meta-press-p ()
-  (or *left-meta* *right-meta*))
-
 
 (defvar *mayu-enabled-p* t)
 
@@ -299,6 +233,102 @@
 	       (sb-posix:ioctl fd EVIOCGRAB (if onoff -1 0))
 	     (sb-posix:syscall-error () nil))))
 
+
+
+
+(defvar *key-stat* (make-array KEY_CNT :initial-element +release+))
+
+(defun sym-to-mod (sym)
+  (case sym
+    (+shift+ *shift*)
+    (+ctrl+  *ctrl*)
+    (+alt+   *alt*)
+    (+meta+  *meta*)
+    (+super+ *super*)
+    (+hyper+ *hyper*)))
+
+(defun mod-sym-to-key (mod-sym)
+  (car (sym-to-mod mod-sym)))
+
+(defun mod-key-to-sym (mod-key-code)
+  (cond ((member mod-key-code *shift*)
+         +shift+)
+        ((member mod-key-code *ctrl*)
+         +ctrl+)
+        ((member mod-key-code *alt*)
+         +alt+)
+        ((member mod-key-code *meta*)
+         +meta+)
+        ((member mod-key-code *super*)
+         +super+)
+        ((member mod-key-code *hyper*)
+         +hyper+)))
+
+(defun ensure-mod-sym (sym-or-code)
+  (typecase sym-or-code
+    (symbol sym-or-code)
+    (t (mod-key-to-sym sym-or-code))))
+
+(defgeneric send-keyboard-event (code action))
+
+(defmethod send-keyboard-event (code action)
+  (when *uinput-fd*
+    (send-input-event EV_KEY code action) ; TODO error
+    (send-input-event EV_SYN SYN_REPORT 0)
+    t))
+
+(defmethod send-keyboard-event :after ((code integer) action)
+  (setf (aref *key-stat* code) action))
+
+(defmethod send-keyboard-event ((code symbol) action)
+  (send-keyboard-event (mod-sym-to-key code) action))
+
+(macrolet ((m (sym keys)
+             `(defmethod send-keyboard-event ((code (eql ,sym)) (action (eql +release+)))
+                (loop for key in ,keys
+                      if (on-p key)
+                        do (send-keyboard-event key +release+)))))
+  (m +shift+    *shift*)
+  (m +ctrl+     *ctrl*)
+  (m +alt+      *alt*)
+  (m +meta+     *meta*)
+  (m +super+    *super*)
+  (m +meta+     *meta*))
+
+
+
+(defun press-p (code)
+  (= (aref *key-stat* code) +press+))
+
+(defun release-p (code)
+  (= (aref *key-stat* code) +release+))
+
+(defun repeat-p (code)
+  (= (aref *key-stat* code) +repeat+))
+
+(defun on-p (code)
+  (not (release-p code)))
+
+(defun shift-press-p ()
+  (some #'on-p *shift*))
+
+(defun ctrl-press-p ()
+  (some #'on-p *ctrl*))
+
+(defun alt-press-p ()
+  (some #'on-p *alt*))
+
+(defun meta-press-p ()
+  (some #'on-p *meta*))
+
+(defun super-press-p ()
+  (some #'on-p *super*))
+
+(defun hyper-press-p ()
+  (some #'on-p *hyper*))
+
+
+
 (defun event-type-to-symbol (event-type)
   (case event-type
     (#.EV_SYN 'EV_SYN)
@@ -328,23 +358,27 @@
 (defvar *sequence-temp-mod* nil)
 (defvar *sequence-temp-mod-for-current-mod* nil)
 
-(defun release-mod (mod-key-code)
-  (let ((seq (list (mod-key-to-sym mod-key-code) +release+)))
-    (write-log "before ~a" *sequence-temp-mod*)
-    (setf *sequence-temp-mod*
-          (remove seq *sequence-temp-mod* :test #'equal))
-    (write-log "after ~a" *sequence-temp-mod*)
-    seq))
+(defgeneric release-mod (sym-or-code)
+  (:method ((sym symbol))
+    (release-mod (mod-sym-to-key sym)))
+  (:method ((code fixnum))
+    (let ((seq (list (mod-key-to-sym code) +release+)))
+      (setf *sequence-temp-mod*
+            (remove seq *sequence-temp-mod* :test #'equal))
+      seq)))
 
 (defun current-mod ()
   (let ((mod `(,@(if (alt-press-p)     '(+alt+))
                  ,@(if (ctrl-press-p)  '(+ctrl+))
                  ,@(if (meta-press-p)  '(+meta+))
-                 ,@(if (shift-press-p) '(+shift+)))))
+                 ,@(if (shift-press-p) '(+shift+))
+                 ,@(if (super-press-p) '(+super+))
+                 ,@(if (hyper-press-p) '(+hyper+)))))
     (loop for (c v) in *sequence-temp-mod-for-current-mod*
+          for mod-sym = (ensure-mod-sym c)
           do (if (= v +press+)
-                 (setf mod (delete c mod))
-                 (pushnew c mod)))
+                 (setf mod (delete mod-sym mod))
+                 (pushnew mod-sym mod)))
     mod))
 
 (defgeneric mod-press-p (mod)
@@ -384,26 +418,30 @@
 
 (defun compute-sequence-temp-mod (sequence-key sequence-value current-mod)
   (write-log "compute-sequence-temp-mod ~a ~a ~a" sequence-key sequence-value current-mod)
-  (let (any)
-    (append
-     (loop for i in sequence-value
-           if (eq i +any+)
-             do (setf any t)
-           else if (and (symbolp i)
-                        (not (member i current-mod)))
-                  collect (list i +press+))
-     (if any
-         ;; ((+any+ +shift+ KEY_COMMA) (+any+ KEY_COMMA)) の場合に shift をリリースするパターン
-         (loop for i in sequence-key
-               if (and (symbolp i)
-                       (not (eq i +any+))
-                       (not (find-no-mod i))
-                       (not (member i sequence-value)))
-                 collect (list i +release+))
-         ;; sequence-value にないものは全てリリースする。
-         (loop for i in current-mod
-               unless (member i sequence-value)
-                 collect (list i +release+))))))
+  (flet ((release-mod-seq (mod)
+           (loop for key in (sym-to-mod mod)
+                 if (on-p key)
+                   collect (list key +release+))))
+    (let (any)
+      (append
+       (loop for i in sequence-value
+             if (eq i +any+)
+               do (setf any t)
+             else if (and (symbolp i)
+                          (not (member i current-mod)))
+                    collect (list i +press+))
+       (if any
+           ;; ((+any+ +shift+ KEY_COMMA) (+any+ KEY_COMMA)) の場合に shift をリリースするパターン
+           (loop for i in sequence-key
+                 if (and (symbolp i)
+                         (not (eq i +any+))
+                         (not (find-no-mod i))
+                         (not (member i sequence-value)))
+                   append (release-mod-seq i))
+           ;; sequence-value にないものは全てリリースする。
+           (loop for i in current-mod
+                 unless (member i sequence-value)
+                   append (release-mod-seq i)))))))
 
 (defun reverse-action-sequnce (sequence)
   (loop for (c v) in sequence

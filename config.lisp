@@ -40,10 +40,14 @@
                (KEY_HENKAN      KEY_LEFTALT)
                (KEY_MUHENKAN    KEY_LEFTALT)
                (KEY_KATAKANAHIRAGANA 199)
+               (KEY_HOME        KEY_LEFTMETA)
+               (KEY_PAGEUP      KEY_RIGHTMETA)
+               (KEY_END         KEY_LEFTHYPER)
+               (KEY_PAGEDOWN    KEY_LEFTHYPER)
                )
 
 ;; SandS
-(set-one-shot (KEY_SPACE   KEY_LEFTSHIFT))
+(set-one-shot (KEY_SPACE +shift+))
 
 ;; キー定義。
 (set-sequence ((+any+ +no-shift+ KEY_COMMA)     (+any+ +shift+ KEY_9))
@@ -54,4 +58,8 @@
               ((+any+ +shift+ KEY_0)            (+any+ +shift+ KEY_DOT))
               ((+any+ +ctrl+ KEY_H)             (+any+ KEY_BACKSPACE))
               ((+any+ +ctrl+ KEY_LEFTBRACE)     (+any+ KEY_ESC))
-              ((+any+ +ctrl+ KEY_M)             (+any+ KEY_ENTER)))
+              ((+any+ +ctrl+ KEY_M)             (+any+ KEY_ENTER))
+              ((+any+ +meta+ KEY_LEFT)          (+any+ KEY_HOME))
+              ((+any+ +meta+ KEY_RIGHT)         (+any+ KEY_END))
+              ((+any+ +meta+ KEY_UP  )          (+any+ KEY_PAGEUP))
+              ((+any+ +meta+ KEY_DOWN)          (+any+ KEY_PAGEDOWN)))

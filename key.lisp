@@ -1,27 +1,5 @@
 (in-package :mayu)
 
-;; key action (value)
-(defconstant +press+ 1)
-(defconstant +release+ 0)
-(defconstant +repeat+ 2)
-
-;; modifier
-(defconstant +any+      '+any+)
-(defconstant +alt+      '+alt+)
-(defconstant +ctrl+     '+ctrl+)
-(defconstant +meta+     '+meta+)
-(defconstant +shift+    '+shift+)
-(defconstant +no-alt+   '+no-alt+)
-(defconstant +no-ctrl+  '+no-ctrl+)
-(defconstant +no-meta+  '+no-meta+)
-(defconstant +no-shift+ '+no-shift+)
-
-(defvar *modifiers*
-  (list (list +alt+ +no-alt+)
-        (list +ctrl+ +no-ctrl+)
-        (list +meta+ +no-meta+)
-        (list +shift+ +no-shift+)))
-
 ;; key
 (defconstant KEY_CNT (+ #x2ff 1) "キーの数")
 
@@ -236,6 +214,7 @@
 (defkey KEY_F22 192)
 (defkey KEY_F23 193)
 (defkey KEY_F24 194)
+(defkey KEY_LEFTHYPER 199)              ; 勝手に足した。
 (defkey KEY_PLAYCD 200)
 (defkey KEY_PAUSECD 201)
 (defkey KEY_PROG3 202)
@@ -489,3 +468,39 @@
 (defkey KEY_MIN_INTERESTING 113)
 (defkey KEY_MAX #x2ff)
 
+
+;;; modifier
+(defvar *shift* (list KEY_LEFTSHIFT KEY_RIGHTSHIFT))
+(defvar *ctrl*  (list KEY_LEFTCTRL  KEY_RIGHTCTRL))
+(defvar *alt*   (list KEY_LEFTALT   KEY_RIGHTALT))
+(defvar *meta*  (list KEY_LEFTMETA  KEY_RIGHTMETA))
+(defvar *super* (list))
+(defvar *hyper* (list KEY_LEFTHYPER))
+
+(defconstant +any+      '+any+)
+(defconstant +alt+      '+alt+)
+(defconstant +ctrl+     '+ctrl+)
+(defconstant +meta+     '+meta+)
+(defconstant +shift+    '+shift+)
+(defconstant +super+    '+super+)
+(defconstant +hyper+    '+hyper+)
+(defconstant +no-alt+   '+no-alt+)
+(defconstant +no-ctrl+  '+no-ctrl+)
+(defconstant +no-meta+  '+no-meta+)
+(defconstant +no-shift+ '+no-shift+)
+(defconstant +no-super+ '+no-super+)
+(defconstant +no-hyper+ '+no-hyper+)
+
+(defvar *modifiers*
+  (list (list +alt+ +no-alt+)
+        (list +ctrl+ +no-ctrl+)
+        (list +meta+ +no-meta+)
+        (list +shift+ +no-shift+)
+        (list +super+ +no-super+)
+        (list +hyper+ +no-hyper+)))
+
+
+;;; key action (value)
+(defconstant +press+ 1)
+(defconstant +release+ 0)
+(defconstant +repeat+ 2)
