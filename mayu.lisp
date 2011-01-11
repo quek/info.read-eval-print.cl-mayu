@@ -513,18 +513,13 @@
 	(list (list code action)))))
 
 (defun proc-key (code action)
-  (if (= code KEY_F12)
-      nil
-      (progn
-        (cond ((and (= code KEY_F11) (= action +press+))
-               (setf *mayu-enabled-p* nil))
-              ((and (= code KEY_F10) (= action +press+)) ; デバッグのためにログにマークを出力する。
-               (write-log "-----------------------------------------------------------------------------")))
-        (let ((ret (translate-key code action)))
-          (loop for (code action) in ret
-                if code
-                  do (send-keyboard-event code action))
-          ret))))
+  (when (and (= code KEY_F10) (= action +press+)) ; デバッグのためにログにマークを出力する。
+    (write-log "-----------------------------------------------------------------------------"))
+  (let ((ret (translate-key code action)))
+    (loop for (code action) in ret
+          if code
+            do (send-keyboard-event code action))
+    ret))
 
 (defun main-loop ()
   (open-keyboard-device)
@@ -536,8 +531,7 @@
 	   (loop
 	     (receive-keyboard-event event)
 	     (cffi:with-foreign-slots ((type code value) event input_event)
-	       (unless (proc-key code value)
-		 (return))))))
+	       (proc-key code value)))))
     (close-keyboard-device)))
 ;; (main-loop)
 
