@@ -118,7 +118,8 @@
 (defun create-uinput-keyboard ()
   "キーコード出力用のキーボードを作成"
   (destroy-uinput-keyboard)
-  (setf *uinput-fd* (sb-posix:open "/dev/input/uinput" sb-posix:o-rdwr))
+  (setf *uinput-fd* (or (ignore-errors (sb-posix:open "/dev/input/uinput" sb-posix:o-rdwr))
+                        (sb-posix:open "/dev/uinput" sb-posix:o-rdwr)))
   (cffi:with-foreign-objects ((uinput-user-dev 'uinput_user_dev))
     (cffi:with-foreign-slots ((name id ff_effects_max absmax absmin absfuzz absflat)
 			      uinput-user-dev uinput_user_dev)
