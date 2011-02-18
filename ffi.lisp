@@ -254,7 +254,7 @@
     (code :unsigned-short)
     (value :int))
 
-  (cl:defconstant EV_VERSION #x010000)
+  (cl:defconstant EV_VERSION #x010001)
 
   (cffi:defcstruct input_id
     (bustype :unsigned-short)
