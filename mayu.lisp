@@ -24,6 +24,7 @@
 
 (defgeneric write-log (format &rest args))
 
+#+nil
 (defmethod write-log :before (format &rest args)
   (declare (ignore args))
   (unless *log-stream*
@@ -33,13 +34,18 @@
                        :if-does-not-exist :create
                        :if-exists :append))))
 
+#+nil
 (defmethod write-log :after (format &rest args)
   (declare (ignore format args))
   (terpri *log-stream*)
   (force-output *log-stream*))
 
+#+nil
 (defmethod write-log ((format string) &rest args)
   (apply #'format *log-stream* format args))
+
+(defmethod write-log ((format string) &rest args)
+  t)
 
 (defmethod write-log (format &rest args)
   (apply #'write-log (princ-to-string format) args))
