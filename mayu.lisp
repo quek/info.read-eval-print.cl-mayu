@@ -45,7 +45,8 @@
   (apply #'format *log-stream* format args))
 
 (defmethod write-log ((format string) &rest args)
-  t)
+  (when *log-stream*
+    (apply #'format *log-stream* format args)))
 
 (defmethod write-log (format &rest args)
   (apply #'write-log (princ-to-string format) args))
@@ -108,7 +109,7 @@
 
 (defun close-keyboard ()
   (loop for fd in *envdev-key-fds*
-	do (sb-posix:close fd))
+     do (ignore-errors (sb-posix:close fd)))
   (setf *envdev-key-fds* nil))
 ;; (open-keyboard)
 ;; *envdev-key-fds*
@@ -119,6 +120,7 @@
   "キーコード出力用のキーボードを破棄"
   (when *uinput-fd*
     (sb-posix:ioctl *uinput-fd* UI_DEV_DESTROY)
+    (sb-posix:close *uinput-fd*)
     (setf *uinput-fd* nil)))
 
 (defun create-uinput-keyboard ()
@@ -206,33 +208,33 @@
   (when-open
     (sb-alien:with-alien ((fd-set (sb-alien:struct sb-unix:fd-set)))
       (loop
-	(sb-unix:fd-zero fd-set)
-	(loop for fd in *envdev-key-fds*
-	      do (sb-unix:fd-set fd fd-set))
-	(sb-unix:unix-fast-select (1+ (loop for fd in *envdev-key-fds* maximize fd))
-				  (sb-alien:addr fd-set) nil nil nil nil)
-	(loop for i from 0
-	      and fd in *envdev-key-fds*
-	      if (sb-unix:fd-isset fd fd-set)
-		do (sb-unix:unix-read fd event (cffi:foreign-type-size 'input_event))
-                   (cffi:with-foreign-slots ((type code value) event input_event)
-                     (if *mayu-enabled-p*
-                         (cond ((= type EV_KEY)
-                                (write-log "rev ~a" (string-downcase (input-event-to-string event)))
-                                (return-from receive-keyboard-event t))
-                               ((or (= type EV_SYN)	; 無視
-                                    (= type EV_MSC)))
-                               (t
-                                ;; キーボードイベント以外は、そのまま出力
-                                (sb-unix:unix-write
-                                 *uinput-fd* event 0
-                                 (cffi:foreign-type-size 'input_event))))
-                         (progn
-                           (write-log "raw ~a" (input-event-to-string event))
-                           (when (and (= type EV_KEY) (= code KEY_F11)
-                                      (= value +press+))
-                             (setf *mayu-enabled-p* t))
-                           (write-input-event *uinput-fd* event)))))))))
+	 (sb-unix:fd-zero fd-set)
+	 (loop for fd in *envdev-key-fds*
+	    do (sb-unix:fd-set fd fd-set))
+	 (sb-unix:unix-fast-select (1+ (loop for fd in *envdev-key-fds* maximize fd))
+				   (sb-alien:addr fd-set) nil nil nil nil)
+	 (loop for i from 0
+	    and fd in *envdev-key-fds*
+	    if (sb-unix:fd-isset fd fd-set)
+	    do (sb-posix:read fd event (cffi:foreign-type-size 'input_event))
+	      (cffi:with-foreign-slots ((type code value) event input_event)
+		(if *mayu-enabled-p*
+		    (cond ((= type EV_KEY)
+			   (write-log "rev ~a" (string-downcase (input-event-to-string event)))
+			   (return-from receive-keyboard-event t))
+			  ((or (= type EV_SYN)	; 無視
+			       (= type EV_MSC)))
+			  (t
+			   ;; キーボードイベント以外は、そのまま出力
+			   (sb-unix:unix-write
+			    *uinput-fd* event 0
+			    (cffi:foreign-type-size 'input_event))))
+		    (progn
+		      (write-log "raw ~a" (input-event-to-string event))
+		      (when (and (= type EV_KEY) (= code KEY_F11)
+				 (= value +press+))
+			(setf *mayu-enabled-p* t))
+		      (write-input-event *uinput-fd* event)))))))))
 
 (defun keyboard-grab-onoff (onoff)
   (loop for fd in *envdev-key-fds*
@@ -536,9 +538,20 @@
 	 (keyboard-grab-onoff t)
 	 (cffi:with-foreign-object (event 'input_event)
 	   (loop
-	     (receive-keyboard-event event)
-	     (cffi:with-foreign-slots ((type code value) event input_event)
-	       (proc-key code value)))))
+	      (handler-case
+		  (progn
+		    (receive-keyboard-event event)
+		    (cffi:with-foreign-slots ((type code value) event input_event)
+		      (proc-key code value)))
+		(error (e)
+		  (warn "~a" e)
+		  (ignore-errors (keyboard-grab-onoff nil))
+		  (ignore-errors (close-keyboard))
+		  (open-keyboard)
+		  (keyboard-grab-onoff t)
+		  (ignore-errors (destroy-uinput-keyboard))
+		  (create-uinput-keyboard)
+		  (sleep 3))))))
     (close-keyboard-device)))
 ;; (main-loop)
 
