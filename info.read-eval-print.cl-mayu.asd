@@ -7,4 +7,4 @@
 	       (:file "ffi")
                (:file "mayu")
 	       (:file "config"))
-  :depends-on (:cffi))
+  :depends-on (:cffi :iolib))

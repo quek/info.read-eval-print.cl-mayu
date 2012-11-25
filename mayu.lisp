@@ -3,6 +3,7 @@
 (defvar *log-pathname* #p"/tmp/cl-mayu.log")
 
 (defvar *log-stream* nil)
+;;(setf *log-stream* *standard-output*)
 
 (defconstant +posix-epoch+ (encode-universal-time 0 0 0 1 1 1970 0))
 
@@ -119,8 +120,8 @@
 (defun destroy-uinput-keyboard ()
   "キーコード出力用のキーボードを破棄"
   (when *uinput-fd*
-    (sb-posix:ioctl *uinput-fd* UI_DEV_DESTROY)
-    (sb-posix:close *uinput-fd*)
+    (ignore-errors (sb-posix:ioctl *uinput-fd* UI_DEV_DESTROY))
+    (ignore-errors (sb-posix:close *uinput-fd*))
     (setf *uinput-fd* nil)))
 
 (defun create-uinput-keyboard ()
@@ -204,37 +205,24 @@
 
 (defvar *mayu-enabled-p* t)
 
-(defun receive-keyboard-event (event)
-  (when-open
-    (sb-alien:with-alien ((fd-set (sb-alien:struct sb-unix:fd-set)))
-      (loop
-	 (sb-unix:fd-zero fd-set)
-	 (loop for fd in *envdev-key-fds*
-	    do (sb-unix:fd-set fd fd-set))
-	 (sb-unix:unix-fast-select (1+ (loop for fd in *envdev-key-fds* maximize fd))
-				   (sb-alien:addr fd-set) nil nil nil nil)
-	 (loop for i from 0
-	    and fd in *envdev-key-fds*
-	    if (sb-unix:fd-isset fd fd-set)
-	    do (sb-posix:read fd event (cffi:foreign-type-size 'input_event))
-	      (cffi:with-foreign-slots ((type code value) event input_event)
-		(if *mayu-enabled-p*
-		    (cond ((= type EV_KEY)
-			   (write-log "rev ~a" (string-downcase (input-event-to-string event)))
-			   (return-from receive-keyboard-event t))
-			  ((or (= type EV_SYN)	; 無視
-			       (= type EV_MSC)))
-			  (t
-			   ;; キーボードイベント以外は、そのまま出力
-			   (sb-unix:unix-write
-			    *uinput-fd* event 0
-			    (cffi:foreign-type-size 'input_event))))
-		    (progn
-		      (write-log "raw ~a" (input-event-to-string event))
-		      (when (and (= type EV_KEY) (= code KEY_F11)
-				 (= value +press+))
-			(setf *mayu-enabled-p* t))
-		      (write-input-event *uinput-fd* event)))))))))
+(defun receive-keyboard-event (fd input-event)
+  (iolib.syscalls:read fd input-event (cffi:foreign-type-size 'input_event))
+  (cffi:with-foreign-slots ((type code value) input-event input_event)
+    (if *mayu-enabled-p*
+	(cond ((= type EV_KEY)
+	       (write-log "rev ~a" (string-downcase (input-event-to-string input-event)))
+	       (return-from receive-keyboard-event t))
+	      ((or (= type EV_SYN) ; 無視
+		   (= type EV_MSC)))
+	      (t
+	       ;; キーボードイベント以外は、そのまま出力
+	       (write-input-event *uinput-fd* input-event)))
+	(progn
+	  (write-log "raw ~a" (input-event-to-string input-event))
+	  (when (and (= type EV_KEY) (= code KEY_F11)
+		     (= value +press+))
+	    (setf *mayu-enabled-p* t))
+	  (write-input-event *uinput-fd* input-event)))))
 
 (defun keyboard-grab-onoff (onoff)
   (loop for fd in *envdev-key-fds*
@@ -530,31 +518,46 @@
             do (send-keyboard-event code action))
     ret))
 
-(defun main-loop ()
-  (open-keyboard-device)
-  (unwind-protect
-       (progn
-	 (sleep 0.5)
-	 (keyboard-grab-onoff t)
-	 (cffi:with-foreign-object (event 'input_event)
-	   (loop
-	      (handler-case
-		  (progn
-		    (receive-keyboard-event event)
-		    (cffi:with-foreign-slots ((type code value) event input_event)
-		      (proc-key code value)))
-		(error (e)
-		  (warn "~a" e)
-		  (ignore-errors (keyboard-grab-onoff nil))
-		  (ignore-errors (close-keyboard))
-		  (open-keyboard)
-		  (keyboard-grab-onoff t)
-		  (ignore-errors (destroy-uinput-keyboard))
-		  (create-uinput-keyboard)
-		  (sleep 3))))))
-    (close-keyboard-device)))
-;; (main-loop)
+(defun epoll-ctl (fd epfd op &rest events)
+  (cffi:with-foreign-object (ev 'isys:epoll-event)
+    (isys:bzero ev isys:size-of-epoll-event)
+    (setf (cffi:foreign-slot-value ev 'isys:epoll-event 'isys:events)
+	  (apply #'logior events))
+    (setf (cffi:foreign-slot-value
+	   (cffi:foreign-slot-value ev 'isys:epoll-event 'isys:data)
+	   'isys:epoll-data 'isys:fd)
+	  fd)
+    (isys:epoll-ctl epfd op fd ev)))
 
+(defun main-loop ()
+  (loop
+    (handler-case (progn
+		    (open-keyboard-device)
+		    (keyboard-grab-onoff t)
+		    (unwind-protect
+			 (%main-loop)
+		      (close-keyboard-device)))
+      (error (e)
+	(warn "~a" e)))))
+;; (sb-thread:make-thread 'main-loop)
+
+(defun %main-loop ()
+  (let ((epfd (isys:epoll-create 1))
+	(fd-count (length *envdev-key-fds*)))
+    (loop for fd in *envdev-key-fds*
+	  do (epoll-ctl fd epfd isys:epoll-ctl-add isys:epollin))
+    (cffi:with-foreign-objects ((input-event 'input_event)
+				(events 'isys:epoll-event fd-count))
+      (isys:bzero events (* isys:size-of-epoll-event fd-count))
+      (loop for ready-fds = (isys:epoll-wait epfd events fd-count 1000)
+	    do (loop for i below ready-fds
+		     for event = (cffi:mem-aref events 'isys:epoll-event i)
+		     for event-fd = (cffi:foreign-slot-value
+				     (cffi:foreign-slot-value event 'isys:epoll-event 'isys:data)
+				     'isys:epoll-data 'isys:fd)
+		     do (receive-keyboard-event event-fd input-event)
+			(cffi:with-foreign-slots ((type code value) input-event input_event)
+			  (proc-key code value)))))))
 
 ;;; config.lisp 用のマクロ
 
