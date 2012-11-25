@@ -211,18 +211,21 @@
     (if *mayu-enabled-p*
 	(cond ((= type EV_KEY)
 	       (write-log "rev ~a" (string-downcase (input-event-to-string input-event)))
-	       (return-from receive-keyboard-event t))
+	       t)
 	      ((or (= type EV_SYN) ; 無視
-		   (= type EV_MSC)))
+		   (= type EV_MSC))
+	       nil)
 	      (t
 	       ;; キーボードイベント以外は、そのまま出力
-	       (write-input-event *uinput-fd* input-event)))
+	       (write-input-event *uinput-fd* input-event)
+	       nil))
 	(progn
 	  (write-log "raw ~a" (input-event-to-string input-event))
 	  (when (and (= type EV_KEY) (= code KEY_F11)
 		     (= value +press+))
 	    (setf *mayu-enabled-p* t))
-	  (write-input-event *uinput-fd* input-event)))))
+	  (write-input-event *uinput-fd* input-event)
+	  nil))))
 
 (defun keyboard-grab-onoff (onoff)
   (loop for fd in *envdev-key-fds*
@@ -510,6 +513,8 @@
 	(list (list code action)))))
 
 (defun proc-key (code action)
+  (when (and (= code KEY_F12) (= action +press+))
+    (setf *mayu-enabled-p* nil))
   (when (and (= code KEY_F10) (= action +press+)) ; デバッグのためにログにマークを出力する。
     (write-log "-----------------------------------------------------------------------------"))
   (let ((ret (translate-key code action)))
@@ -555,9 +560,9 @@
 		     for event-fd = (cffi:foreign-slot-value
 				     (cffi:foreign-slot-value event 'isys:epoll-event 'isys:data)
 				     'isys:epoll-data 'isys:fd)
-		     do (receive-keyboard-event event-fd input-event)
-			(cffi:with-foreign-slots ((type code value) input-event input_event)
-			  (proc-key code value)))))))
+		     if (receive-keyboard-event event-fd input-event)
+		       do (cffi:with-foreign-slots ((type code value) input-event input_event)
+			    (proc-key code value)))))))
 
 ;;; config.lisp 用のマクロ
 
