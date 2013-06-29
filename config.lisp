@@ -50,12 +50,14 @@
 (set-one-shot (KEY_SPACE +shift+))
 
 ;; キー定義。
-(set-sequence ((+any+ +no-shift+ KEY_COMMA)     (+any+ +shift+ KEY_9))
+(set-sequence ((+any+ +no-meta+ +no-shift+ KEY_COMMA)     (+any+ +shift+ KEY_9))
               ((+any+ +shift+    KEY_COMMA)     (+any+ KEY_COMMA))
-              ((+any+ +no-shift+ KEY_DOT)       (+any+ +shift+ KEY_0))
+              ((+any+ +no-meta+ +no-shift+ KEY_DOT)       (+any+ +shift+ KEY_0))
               ((+any+ +shift+    KEY_DOT)       (+any+ KEY_DOT))
               ((+any+ +shift+ KEY_9)            (+any+ +shift+ KEY_COMMA))
               ((+any+ +shift+ KEY_0)            (+any+ +shift+ KEY_DOT))
+              ((+any+ +meta+ KEY_COMMA)        (+any+ +shift+ KEY_COMMA))
+              ((+any+ +meta+ KEY_DOT)          (+any+ +shift+ KEY_DOT))
               ((+any+ +ctrl+ KEY_H)             (+any+ KEY_BACKSPACE))
               ((+any+ +ctrl+ KEY_LEFTBRACE)     (+any+ KEY_ESC))
               ((+any+ +ctrl+ KEY_M)             (+any+ KEY_ENTER))
