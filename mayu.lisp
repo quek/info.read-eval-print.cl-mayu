@@ -130,8 +130,7 @@
   (setf *uinput-fd* (or (ignore-errors (sb-posix:open "/dev/input/uinput" sb-posix:o-rdwr))
                         (sb-posix:open "/dev/uinput" sb-posix:o-rdwr)))
   (cffi:with-foreign-objects ((uinput-user-dev '(:struct uinput_user_dev)))
-    (cffi:with-foreign-slots ((name id ff_effects_max absmax absmin absfuzz absflat)
-                              uinput-user-dev (:struct uinput_user_dev))
+    (cffi:with-foreign-slots ((name id) uinput-user-dev (:struct uinput_user_dev))
       (loop for i from 0
             for c across (format nil "mayu uinpt~c" #\Nul)
             do (setf (cffi:mem-aref name :char i) (char-code c)))
@@ -159,7 +158,7 @@
       (sb-unix:unix-write *uinput-fd*
                           uinput-user-dev
                           0
-                          (cffi:foreign-type-size 'uinput_user_dev))
+                          (cffi:foreign-type-size '(:struct uinput_user_dev)))
       (sb-posix:ioctl *uinput-fd* UI_DEV_CREATE)
       *uinput-fd*)))
 ;; (create-uinput-keyboard)
@@ -181,7 +180,7 @@
 
 (defun write-input-event (fd input-event)
   (sb-unix:unix-write fd input-event 0
-                      (cffi:foreign-type-size 'input_event)))
+                      (cffi:foreign-type-size '(:struct input_event))))
 
 (defun send-input-event (_type _code _value)
   (when *uinput-fd*
@@ -194,7 +193,7 @@
               value _value)
         (when (= _type EV_KEY)
           (write-log "SND ~a" (input-event-to-string event)))
-        (let ((event-size (cffi:foreign-type-size 'input_event)))
+        (let ((event-size (cffi:foreign-type-size '(:struct input_event))))
           (let ((write-size (sb-unix:unix-write *uinput-fd*     ; TODO error
                                                 event
                                                 0
@@ -206,7 +205,7 @@
 (defvar *mayu-enabled-p* t)
 
 (defun receive-keyboard-event (fd input-event)
-  (sb-posix:read fd input-event (cffi:foreign-type-size 'input_event))
+  (sb-posix:read fd input-event (cffi:foreign-type-size '(:struct input_event)))
   (cffi:with-foreign-slots ((type code value) input-event (:struct input_event))
     (if *mayu-enabled-p*
         (cond ((= type EV_KEY)
@@ -524,15 +523,15 @@
     ret))
 
 (defun epoll-ctl (fd epfd op &rest events)
-  (cffi:with-foreign-object (ev '(:struct isys:epoll-event))
-    (isys:bzero ev (isys:sizeof 'isys:epoll-event))
-    (setf (cffi:foreign-slot-value ev 'isys:epoll-event 'isys:events)
+  (cffi:with-foreign-object (ev '(:struct epoll-event))
+    (bzero ev (cffi:foreign-type-size '(:struct epoll-event)))
+    (setf (cffi:foreign-slot-value ev '(:struct epoll-event) 'events)
           (apply #'logior events))
     (setf (cffi:foreign-slot-value
-           (cffi:foreign-slot-value ev 'isys:epoll-event 'isys:data)
-           'isys:epoll-data 'isys:fd)
+           (cffi:foreign-slot-value ev '(:struct epoll-event) 'data)
+           '(:union epoll-data) 'fd)
           fd)
-    (isys:epoll-ctl epfd op fd ev)))
+    (%epoll-ctl epfd op fd ev)))
 
 (defun main-loop ()
   (loop
@@ -543,23 +542,23 @@
                          (%main-loop)
                       (close-keyboard-device)))
       (error (e)
-        (warn "~a" e)))))
+        (warn "error!!!! ~a" e)))))
 ;; (sb-thread:make-thread 'main-loop)
 
 (defun %main-loop ()
-  (let ((epfd (isys:epoll-create 1))
+  (let ((epfd (epoll-create 1))
         (fd-count (length *envdev-key-fds*)))
     (loop for fd in *envdev-key-fds*
-          do (epoll-ctl fd epfd isys:epoll-ctl-add isys:epollin))
+          do (epoll-ctl fd epfd epoll-ctl-add epollin))
     (cffi:with-foreign-objects ((input-event '(:struct input_event))
-                                (events 'isys:epoll-event fd-count))
-      (isys:bzero events (* (isys:sizeof 'isys:epoll-event) fd-count))
-      (loop for ready-fds = (isys:epoll-wait epfd events fd-count 1000)
+                                (events '(:struct epoll-event) fd-count))
+      (bzero events (* (cffi:foreign-type-size '(:struct epoll-event)) fd-count))
+      (loop for ready-fds = (epoll-wait epfd events fd-count 1000)
             do (loop for i below ready-fds
-                     for event = (cffi:mem-aref events 'isys:epoll-event i)
+                     for event = (cffi:mem-aptr events '(:struct epoll-event) i)
                      for event-fd = (cffi:foreign-slot-value
-                                     (cffi:foreign-slot-value event 'isys:epoll-event 'isys:data)
-                                     'isys:epoll-data 'isys:fd)
+                                     (cffi:foreign-slot-value event '(:struct epoll-event) 'data)
+                                     '(:union epoll-data) 'fd)
                      if (receive-keyboard-event event-fd input-event)
                        do (cffi:with-foreign-slots ((type code value) input-event (:struct input_event))
                             (proc-key code value)))))))

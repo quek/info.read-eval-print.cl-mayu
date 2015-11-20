@@ -2,7 +2,7 @@
 
 #define __signed__
 
-%include "/usr/include/asm/posix_types_64.h"
+%include "/usr/include/x86_64-linux-gnu/asm/posix_types_64.h"
 
 %include "/usr/include/linux/time.h"
 
