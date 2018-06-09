@@ -8,17 +8,17 @@
 (defconstant +posix-epoch+ (encode-universal-time 0 0 0 1 1 1970 0))
 
 (defun input-event-to-string (event)
-  (cffi:with-foreign-slots ((time type code value) event (:struct input_event))
-    (cffi:with-foreign-slots ((tv_sec tv_usec) time (:struct timeval))
+  (cffi:with-foreign-slots ((time type code value) event (:struct input-event))
+    (cffi:with-foreign-slots ((tv-sec tv-usec) time (:struct timeval))
       (multiple-value-bind (sec min hour day month year)
-          (decode-universal-time (+ tv_sec +posix-epoch+))
-        (if (= type EV_KEY)
+          (decode-universal-time (+ tv-sec +posix-epoch+))
+        (if (= type +ev-key+)
             (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~[release~;press~;repeat~]"
-                    year month day hour min sec tv_usec
+                    year month day hour min sec tv-usec
                     (key-code-to-symbol code)
                     value)
             (format nil "~04,'0d/~02,'0d/~02,'0d ~02,'0d:~02,'0d:~02,'0d.~06,'0d ~a ~a ~a"
-                    year month day hour min sec tv_usec
+                    year month day hour min sec tv-usec
                     (event-type-to-symbol type)
                     code
                     value))))))
@@ -62,26 +62,34 @@
 (defvar *envdev-key-fds* ())
 (defvar *uinput-fd* nil)
 
+(defun ioc (dir type nr size)
+  (logior (ash dir +ioc_dirshift+)
+          (ash type +ioc_typeshift+)
+          (ash nr +ioc_nrshift+)
+          (ash size +ioc_sizeshift+)))
+
+(defun eviocgbit (ev len)
+  (ioc +ioc-read+ #.(char-code #\E) (+ #x20 ev) len))
 
 (defun keyboard-device-p (fd)
-  (cffi:with-foreign-objects ((devinfo '(:struct input_id)))
+  (cffi:with-foreign-objects ((devinfo '(:struct input-id)))
     (sb-posix:ioctl fd
-                    EVIOCGID
+                    +eviocgid+
                     (sb-alien:sap-alien devinfo (* t)))
-    (cffi:with-foreign-slots ((bustype) devinfo (:struct input_id))
+    (cffi:with-foreign-slots ((bustype) devinfo (:struct input-id))
       ;; allow USB, PS/2, ADB
-      (unless (member bustype (list BUS_USB BUS_I8042 BUS_ADB) :test #'=)
+      (unless (member bustype (list +bus-usb+ +bus-i8042+ +bus-adb+) :test #'=)
         (return-from keyboard-device-p nil))))
-  (let ((size (1+ (truncate (/ EV_MAX 8)))))
+  (let ((size (1+ (truncate (/ +ev-max+ 8)))))
     (cffi:with-foreign-objects ((evtype-bitmask :uint8 size))
       (sb-posix:ioctl fd
-                      (EVIOCGBIT 0 (* 8 size))
+                      (eviocgbit 0 (* 8 size))
                       (sb-alien:sap-alien evtype-bitmask (* t)))
       ;; EV_SYN, EV_KEY, EV_REP ならおｋ
       (let ((value (cffi:mem-ref evtype-bitmask :uint32)))
-        (and (logbitp EV_SYN value)
-             (logbitp EV_KEY value)
-             (logbitp EV_REP value))))))
+        (and (logbitp +ev-syn+ value)
+             (logbitp +ev-key+ value)
+             (logbitp +ev-rep+ value))))))
 
 
 (defun open-key-device (dev-number)
@@ -91,9 +99,9 @@
                                 (logior sb-posix:o-rdonly sb-posix:o-ndelay))))
         (cffi:with-foreign-objects ((version :int))
           (sb-posix:ioctl fd
-                          EVIOCGVERSION
+                          +eviocgversion+
                           (sb-alien:sap-alien version (* t)))
-          (if (= (cffi:mem-ref version :int) EV_VERSION)
+          (if (= (cffi:mem-ref version :int) +ev-version+)
               fd
               (progn
                 (sb-posix:close fd)
@@ -120,7 +128,7 @@
 (defun destroy-uinput-keyboard ()
   "キーコード出力用のキーボードを破棄"
   (when *uinput-fd*
-    (ignore-errors (sb-posix:ioctl *uinput-fd* UI_DEV_DESTROY))
+    (ignore-errors (sb-posix:ioctl *uinput-fd* +ui-dev-destroy+))
     (ignore-errors (sb-posix:close *uinput-fd*))
     (setf *uinput-fd* nil)))
 
@@ -129,37 +137,37 @@
   (destroy-uinput-keyboard)
   (setf *uinput-fd* (or (ignore-errors (sb-posix:open "/dev/input/uinput" sb-posix:o-rdwr))
                         (sb-posix:open "/dev/uinput" sb-posix:o-rdwr)))
-  (cffi:with-foreign-objects ((uinput-user-dev '(:struct uinput_user_dev)))
-    (cffi:with-foreign-slots ((name id) uinput-user-dev (:struct uinput_user_dev))
+  (cffi:with-foreign-objects ((uinput-user-dev '(:struct uinput-user-dev)))
+    (cffi:with-foreign-slots ((name id) uinput-user-dev (:struct uinput-user-dev))
       (loop for i from 0
             for c across (format nil "mayu uinpt~c" #\Nul)
             do (setf (cffi:mem-aref name :char i) (char-code c)))
-      (cffi:with-foreign-slots ((vendor bustype product version) id (:struct input_id))
+      (cffi:with-foreign-slots ((vendor bustype product version) id (:struct input-id))
         (setf vendor 1)
-        (setf bustype BUS_I8042)
+        (setf bustype +bus-i8042+)
         (setf product 1)
         (setf version 4))
       ;; uinput deviceを作成
-      (sb-posix:ioctl *uinput-fd* UI_SET_EVBIT EV_KEY)
-      (sb-posix:ioctl *uinput-fd* UI_SET_EVBIT EV_SYN)
-      (sb-posix:ioctl *uinput-fd* UI_SET_EVBIT EV_REP)
-      (sb-posix:ioctl *uinput-fd* UI_SET_EVBIT EV_REL)
-      (sb-posix:ioctl *uinput-fd* UI_SET_RELBIT REL_X)
-      (sb-posix:ioctl *uinput-fd* UI_SET_RELBIT REL_Y)
+      (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-key+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-syn+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-rep+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-rel+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-relbit+ +rel-x+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-relbit+ +rel-y+)
       (loop for i from 0 below KEY_MAX
-            do (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT i))
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_MOUSE)
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_LEFT)
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_MIDDLE)
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_RIGHT)
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_FORWARD)
-      (sb-posix:ioctl *uinput-fd* UI_SET_KEYBIT BTN_BACK)
+            do (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ i))
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-mouse+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-left+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-middle+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-right+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-forward+)
+      (sb-posix:ioctl *uinput-fd* +ui-set-keybit+ +btn-back+)
 
       (sb-unix:unix-write *uinput-fd*
                           uinput-user-dev
                           0
                           (cffi:foreign-type-size '(:struct uinput_user_dev)))
-      (sb-posix:ioctl *uinput-fd* UI_DEV_CREATE)
+      (sb-posix:ioctl *uinput-fd* +ui-dev-create+)
       *uinput-fd*)))
 ;; (create-uinput-keyboard)
 ;; (destroy-uinput-keyboard)
@@ -184,14 +192,14 @@
 
 (defun send-input-event (_type _code _value)
   (when *uinput-fd*
-    (cffi:with-foreign-objects ((event '(:struct input_event)))
-      (cffi:with-foreign-slots ((time type code value) event (:struct input_event))
-        (cffi:with-foreign-slots ((tv_sec tv_usec) time (:struct timeval))
-          (setf (values tv_sec tv_usec) (sb-ext:get-time-of-day)))
+    (cffi:with-foreign-objects ((event '(:struct input-event)))
+      (cffi:with-foreign-slots ((time type code value) event (:struct input-event))
+        (cffi:with-foreign-slots ((tv-sec tv-usec) time (:struct timeval))
+          (setf (values tv-sec tv-usec) (sb-ext:get-time-of-day)))
         (setf type _type
               code _code
               value _value)
-        (when (= _type EV_KEY)
+        (when (= _type +ev-key+)
           (write-log "SND ~a" (input-event-to-string event)))
         (let ((event-size (cffi:foreign-type-size '(:struct input_event))))
           (let ((write-size (sb-unix:unix-write *uinput-fd*     ; TODO error
@@ -205,14 +213,14 @@
 (defvar *mayu-enabled-p* t)
 
 (defun receive-keyboard-event (fd input-event)
-  (sb-posix:read fd input-event (cffi:foreign-type-size '(:struct input_event)))
-  (cffi:with-foreign-slots ((type code value) input-event (:struct input_event))
+  (sb-posix:read fd input-event (cffi:foreign-type-size '(:struct input-event)))
+  (cffi:with-foreign-slots ((type code value) input-event (:struct input-event))
     (if *mayu-enabled-p*
-        (cond ((= type EV_KEY)
+        (cond ((= type +ev-key+)
                (write-log "rev ~a" (string-downcase (input-event-to-string input-event)))
                t)
-              ((or (= type EV_SYN) ; 無視
-                   (= type EV_MSC))
+              ((or (= type +ev-syn+) ; 無視
+                   (= type +ev-msc+))
                nil)
               (t
                ;; キーボードイベント以外は、そのまま出力
@@ -220,7 +228,7 @@
                nil))
         (progn
           (write-log "raw ~a" (input-event-to-string input-event))
-          (when (and (= type EV_KEY) (= code KEY_F11)
+          (when (and (= type +ev-key+) (= code KEY_F11)
                      (= value +press+))
             (setf *mayu-enabled-p* t))
           (write-input-event *uinput-fd* input-event)
@@ -229,7 +237,7 @@
 (defun keyboard-grab-onoff (onoff)
   (loop for fd in *envdev-key-fds*
         do (handler-case
-               (sb-posix:ioctl fd EVIOCGRAB (if onoff -1 0))
+               (sb-posix:ioctl fd +eviocgrab+ (if onoff -1 0))
              (sb-posix:syscall-error () nil))))
 
 
@@ -272,8 +280,8 @@
 
 (defmethod send-keyboard-event (code action)
   (when *uinput-fd*
-    (send-input-event EV_KEY code action) ; TODO error
-    (send-input-event EV_SYN SYN_REPORT 0)
+    (send-input-event +ev-key+ code action) ; TODO error
+    (send-input-event +ev-syn+ +syn-report+ 0)
     t))
 
 (defmethod send-keyboard-event :after ((code integer) action)
@@ -330,18 +338,18 @@
 
 (defun event-type-to-symbol (event-type)
   (case event-type
-    (#.EV_SYN 'EV_SYN)
-    (#.EV_KEY 'EV_KEY)
-    (#.EV_REL 'EV_REL)
-    (#.EV_ABS 'EV_ABS)
-    (#.EV_MSC 'EV_MSC)
-    (#.EV_SW  'EV_SW)
-    (#.EV_LED 'EV_LED)
-    (#.EV_SND 'EV_SND)
-    (#.EV_REP 'EV_REP)
-    (#.EV_FF  'EV_FF)
-    (#.EV_PWR 'EV_PWR)
-    (#.EV_FF_STATUS 'EV_FF_STATUS)
+    (#.+ev-syn+ '+ev-syn+)
+    (#.+ev-key+ '+ev-key+)
+    (#.+ev-rel+ '+ev-rel+)
+    (#.+ev-abs+ '+ev-abs+)
+    (#.+ev-msc+ '+ev-msc+)
+    (#.+ev-sw+  '+ev-sw+)
+    (#.+ev-led+ '+ev-led+)
+    (#.+ev-snd+ '+ev-snd+)
+    (#.+ev-rep+ '+ev-rep+)
+    (#.+ev-ff+  '+ev-ff+)
+    (#.+ev-pwr+ '+ev-pwr+)
+    (#.+ev-ff-status+ '+ev-qff-status+)
     (t event-type)))
 
 (defvar *key-array*
@@ -550,7 +558,7 @@
         (fd-count (length *envdev-key-fds*)))
     (loop for fd in *envdev-key-fds*
           do (epoll-ctl fd epfd epoll-ctl-add epollin))
-    (cffi:with-foreign-objects ((input-event '(:struct input_event))
+    (cffi:with-foreign-objects ((input-event '(:struct input-event))
                                 (events '(:struct epoll-event) fd-count))
       (bzero events (* (cffi:foreign-type-size '(:struct epoll-event)) fd-count))
       (loop for ready-fds = (epoll-wait epfd events fd-count 1000)
@@ -560,7 +568,7 @@
                                      (cffi:foreign-slot-value event '(:struct epoll-event) 'data)
                                      '(:union epoll-data) 'fd)
                      if (receive-keyboard-event event-fd input-event)
-                       do (cffi:with-foreign-slots ((type code value) input-event (:struct input_event))
+                       do (cffi:with-foreign-slots ((type code value) input-event (:struct input-event))
                             (proc-key code value)))))))
 
 ;;; config.lisp 用のマクロ

@@ -1,5 +1,5 @@
 *~
 *.fasl
 *.o
+/input__grovel.c
 a.out
-

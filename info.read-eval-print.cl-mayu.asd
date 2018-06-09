@@ -6,8 +6,8 @@
   :serial t
   :components ((:file "package")
                (cffi-grovel:grovel-file "grovelling")
+               (cffi-grovel:grovel-file "input")
                (:file "key")
-               (:file "ffi")
                (:file "epoll")
                (:file "mayu")
                (:file "config"))
