@@ -9,7 +9,8 @@
 
 (defun input-event-to-string (event)
   (cffi:with-foreign-slots ((time type code value) event (:struct input-event))
-    (cffi:with-foreign-slots ((tv-sec tv-usec) time (:struct timeval))
+    (let ((tv-sec  (getf time 'tv-sec))
+          (tv-usec (getf time 'tv-usec)))
       (multiple-value-bind (sec min hour day month year)
           (decode-universal-time (+ tv-sec +posix-epoch+))
         (if (= type +ev-key+)
@@ -63,10 +64,10 @@
 (defvar *uinput-fd* nil)
 
 (defun ioc (dir type nr size)
-  (logior (ash dir +ioc_dirshift+)
-          (ash type +ioc_typeshift+)
-          (ash nr +ioc_nrshift+)
-          (ash size +ioc_sizeshift+)))
+  (logior (ash dir +ioc-dirshift+)
+          (ash type +ioc-typeshift+)
+          (ash nr +ioc-nrshift+)
+          (ash size +ioc-sizeshift+)))
 
 (defun eviocgbit (ev len)
   (ioc +ioc-read+ #.(char-code #\E) (+ #x20 ev) len))
@@ -138,15 +139,19 @@
   (setf *uinput-fd* (or (ignore-errors (sb-posix:open "/dev/input/uinput" sb-posix:o-rdwr))
                         (sb-posix:open "/dev/uinput" sb-posix:o-rdwr)))
   (cffi:with-foreign-objects ((uinput-user-dev '(:struct uinput-user-dev)))
+    (let ((id (cffi:foreign-slot-pointer uinput-user-dev
+					 '(:struct uinput-user-dev)
+					 'id)))
+      (cffi:with-foreign-slots ((vendor bustype product version)
+				id (:struct input-id))
+        (setf vendor 1)
+        (setf bustype +bus-i8042+)
+        (setf product 1)
+        (setf version 4)))
     (cffi:with-foreign-slots ((name id) uinput-user-dev (:struct uinput-user-dev))
       (loop for i from 0
             for c across (format nil "mayu uinpt~c" #\Nul)
             do (setf (cffi:mem-aref name :char i) (char-code c)))
-      (cffi:with-foreign-slots ((vendor bustype product version) id (:struct input-id))
-        (setf vendor 1)
-        (setf bustype +bus-i8042+)
-        (setf product 1)
-        (setf version 4))
       ;; uinput deviceを作成
       (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-key+)
       (sb-posix:ioctl *uinput-fd* +ui-set-evbit+ +ev-syn+)
@@ -166,7 +171,7 @@
       (sb-unix:unix-write *uinput-fd*
                           uinput-user-dev
                           0
-                          (cffi:foreign-type-size '(:struct uinput_user_dev)))
+                          (cffi:foreign-type-size '(:struct uinput-user-dev)))
       (sb-posix:ioctl *uinput-fd* +ui-dev-create+)
       *uinput-fd*)))
 ;; (create-uinput-keyboard)
@@ -188,20 +193,22 @@
 
 (defun write-input-event (fd input-event)
   (sb-unix:unix-write fd input-event 0
-                      (cffi:foreign-type-size '(:struct input_event))))
+                      (cffi:foreign-type-size '(:struct input-event))))
 
 (defun send-input-event (_type _code _value)
   (when *uinput-fd*
     (cffi:with-foreign-objects ((event '(:struct input-event)))
-      (cffi:with-foreign-slots ((time type code value) event (:struct input-event))
-        (cffi:with-foreign-slots ((tv-sec tv-usec) time (:struct timeval))
+      (cffi:with-foreign-slots ((type code value) event (:struct input-event))
+        (cffi:with-foreign-slots ((tv-sec tv-usec)
+                                  (cffi:foreign-slot-pointer event '(:struct input-event) 'time)
+                                  (:struct timeval))
           (setf (values tv-sec tv-usec) (sb-ext:get-time-of-day)))
         (setf type _type
               code _code
               value _value)
         (when (= _type +ev-key+)
           (write-log "SND ~a" (input-event-to-string event)))
-        (let ((event-size (cffi:foreign-type-size '(:struct input_event))))
+        (let ((event-size (cffi:foreign-type-size '(:struct input-event))))
           (let ((write-size (sb-unix:unix-write *uinput-fd*     ; TODO error
                                                 event
                                                 0

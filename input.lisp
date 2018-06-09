@@ -6,10 +6,10 @@
 (constant (+ioc-none+ "_IOC_NONE"))
 (constant (+ioc-write+ "_IOC_WRITE"))
 (constant (+ioc-read+ "_IOC_READ"))
-(constant (+ioc_nrshift+ "_IOC_NRSHIFT"))
-(constant (+ioc_typeshift+ "_IOC_TYPESHIFT"))
-(constant (+ioc_sizeshift+ "_IOC_SIZESHIFT"))
-(constant (+ioc_dirshift+ "_IOC_DIRSHIFT"))
+(constant (+ioc-nrshift+ "_IOC_NRSHIFT"))
+(constant (+ioc-typeshift+ "_IOC_TYPESHIFT"))
+(constant (+ioc-sizeshift+ "_IOC_SIZESHIFT"))
+(constant (+ioc-dirshift+ "_IOC_DIRSHIFT"))
 
 
 (include "linux/input.h")
